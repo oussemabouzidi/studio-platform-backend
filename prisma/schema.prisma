@@ -1,0 +1,459 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model artist {
+  id               Int                      @id @default(autoincrement())
+  user_id          Int
+  avatar_link      String?                  @db.VarChar(255)
+  full_name        String?                  @db.VarChar(255)
+  artist_name      String?                  @db.VarChar(255)
+  location         String?                  @db.VarChar(255)
+  bio              String?                  @db.Text
+  email            String?                  @db.VarChar(255)
+  phone            String?                  @db.VarChar(50)
+  instagram        String?                  @db.VarChar(255)
+  soundCloud       String?                  @db.VarChar(255)
+  youtube          String?                  @db.VarChar(255)
+  experience_level artist_experience_level?
+  years_experience Int?
+  availabilitie    String?                  @db.Text
+
+  @@index([user_id], map: "user_id")
+}
+
+model artist_colaborators {
+  artist_id       Int
+  colaborators_id Int
+
+  @@id([artist_id, colaborators_id])
+  @@index([colaborators_id], map: "colaborators_id")
+}
+
+model artist_genre {
+  artist_id Int
+  genre_id  Int
+
+  @@id([artist_id, genre_id])
+  @@index([genre_id], map: "genre_id")
+}
+
+model artist_instruments {
+  artist_id     Int
+  instrument_id Int
+
+  @@id([artist_id, instrument_id])
+  @@index([instrument_id], map: "instrument_id")
+}
+
+model artist_language {
+  artist_id   Int
+  language_id Int
+
+  @@id([artist_id, language_id])
+  @@index([language_id], map: "language_id")
+}
+
+model artist_portfolio {
+  id           Int  @id @default(autoincrement())
+  artist_id    Int?
+  portfolio_id Int?
+
+  @@index([artist_id], map: "artist_id")
+  @@index([portfolio_id], map: "portfolio_id")
+}
+
+model booking {
+  id           Int       @id @default(autoincrement())
+  user_id      Int?
+  studio_id    Int?
+  booking_date DateTime? @db.Date
+  booking_time DateTime? @db.Time(0)
+  nbr_guests   Int?
+
+  @@index([studio_id], map: "studio_id")
+  @@index([user_id], map: "user_id")
+}
+
+model colaborators {
+  id   Int    @id @default(autoincrement())
+  name String @db.VarChar(255)
+}
+
+model equipement {
+  id   Int    @id @default(autoincrement())
+  name String @db.VarChar(255)
+}
+
+model favorite_studio {
+  id        Int  @id @default(autoincrement())
+  artist_id Int?
+  studio_id Int?
+
+  @@index([artist_id], map: "artist_id")
+  @@index([studio_id], map: "studio_id")
+}
+
+model gallery {
+  id   Int    @id @default(autoincrement())
+  link String @db.VarChar(255)
+}
+
+model genre {
+  id   Int    @id @default(autoincrement())
+  name String @db.VarChar(255)
+}
+
+model instruments {
+  id   Int    @id @default(autoincrement())
+  name String @db.VarChar(255)
+}
+
+model language {
+  id   Int    @id @default(autoincrement())
+  name String @db.VarChar(255)
+}
+
+model notification {
+  id         Int       @id @default(autoincrement())
+  user_id    Int?
+  title      String?   @db.VarChar(255)
+  content    String?   @db.Text
+  created_at DateTime? @db.DateTime(0)
+  is_read    Boolean?  @default(false)
+
+  @@index([user_id], map: "user_id")
+}
+
+model points {
+  id           Int     @id @default(autoincrement())
+  artist_id    Int?
+  total_points Int?
+  level        String? @db.VarChar(255)
+
+  @@index([artist_id], map: "artist_id")
+}
+
+model portfolio {
+  id    Int             @id @default(autoincrement())
+  url   String          @db.VarChar(255)
+  type  portfolio_type?
+  title String?         @db.VarChar(255)
+}
+
+model review {
+  id          Int       @id @default(autoincrement())
+  artist_id   Int?
+  studio_id   Int?
+  rating      Int?
+  comment     String?   @db.VarChar(255)
+  review_date DateTime? @db.DateTime(0)
+
+  @@index([artist_id], map: "artist_id")
+  @@index([studio_id], map: "studio_id")
+}
+
+model schedule {
+  id         Int           @id @default(autoincrement())
+  day        schedule_day?
+  start_time DateTime?     @db.Time(0)
+  end_time   DateTime?     @db.Time(0)
+}
+
+model service {
+  id               Int                 @id @default(autoincrement())
+  name             String              @db.VarChar(255)
+  price_type       service_price_type?
+  price            Float?
+  duration         DateTime?           @db.Time(0)
+  max_capacity     Int?
+  available_timing String?             @db.VarChar(255)
+  description      String?             @db.Text
+}
+
+model service_tag {
+  service_id Int
+  tag_id     Int
+
+  @@id([service_id, tag_id])
+  @@index([tag_id], map: "tag_id")
+}
+
+model studio {
+  id                  Int     @id @default(autoincrement())
+  user_id             Int
+  name                String  @db.VarChar(255)
+  location            String? @db.VarChar(255)
+  description         String? @db.Text
+  avatar_link         String? @db.VarChar(255)
+  email               String? @db.VarChar(255)
+  phone               String? @db.VarChar(50)
+  website             String? @db.VarChar(255)
+  instagram           String? @db.VarChar(255)
+  soundCloud          String? @db.VarChar(255)
+  youtube             String? @db.VarChar(255)
+  studio_rules        String? @db.Text
+  cancellation_policy String? @db.Text
+
+  @@index([user_id], map: "user_id")
+}
+
+model studio_equipement {
+  studio_id     Int
+  equipement_id Int
+
+  @@id([studio_id, equipement_id])
+  @@index([equipement_id], map: "equipement_id")
+}
+
+model studio_gallery {
+  studio_id  Int
+  gallery_id Int
+
+  @@id([studio_id, gallery_id])
+  @@index([gallery_id], map: "gallery_id")
+}
+
+model studio_genre {
+  studio_id Int
+  genre_id  Int
+
+  @@id([studio_id, genre_id])
+  @@index([genre_id], map: "genre_id")
+}
+
+model studio_language {
+  studio_id   Int
+  language_id Int
+
+  @@id([studio_id, language_id])
+  @@index([language_id], map: "language_id")
+}
+
+model studio_schedule {
+  id          Int  @id @default(autoincrement())
+  schedule_id Int?
+  studio_id   Int?
+
+  @@index([schedule_id], map: "schedule_id")
+  @@index([studio_id], map: "studio_id")
+}
+
+model studio_service {
+  id         Int  @id @default(autoincrement())
+  studio_id  Int?
+  service_id Int?
+
+  @@index([service_id], map: "service_id")
+  @@index([studio_id], map: "studio_id")
+}
+
+model studio_type {
+  studio_id Int
+  type_id   Int
+
+  @@id([studio_id, type_id])
+  @@index([type_id], map: "type_id")
+}
+
+model tag {
+  id   Int    @id @default(autoincrement())
+  name String @db.VarChar(255)
+}
+
+model transactions {
+  id               Int                  @id @default(autoincrement())
+  booking_id       Int?
+  artist_id        Int?
+  studio_id        Int?
+  transaction_date DateTime?            @db.DateTime(0)
+  amount           Float?
+  status           transactions_status?
+
+  @@index([artist_id], map: "artist_id")
+  @@index([booking_id], map: "booking_id")
+  @@index([studio_id], map: "studio_id")
+}
+
+model type {
+  id   Int    @id @default(autoincrement())
+  name String @db.VarChar(255)
+}
+
+model user_profile {
+  id       Int    @id @default(autoincrement())
+  email    String @unique(map: "email") @db.VarChar(80)
+  password String @db.VarChar(80)
+}
+
+model account {
+  id      Int            @id @default(autoincrement())
+  account String         @db.VarChar(255)
+  status  account_status @default(disconnected)
+}
+
+model artist_review_reminder {
+  id           Int      @id @default(autoincrement())
+  email        Boolean? @default(true)
+  sms          Boolean? @default(false)
+  notification Boolean? @default(true)
+}
+
+model booking_reminder {
+  id           Int      @id @default(autoincrement())
+  email        Boolean? @default(true)
+  sms          Boolean? @default(false)
+  notification Boolean? @default(true)
+}
+
+model connected_account_user {
+  id         Int @id @default(autoincrement())
+  user_id    Int
+  account_id Int
+
+  @@index([account_id], map: "account_id")
+  @@index([user_id], map: "user_id")
+}
+
+model notification_settings {
+  id                        Int  @id @default(autoincrement())
+  booking_reminder_id       Int?
+  artist_review_reminder_id Int?
+  payout_updates_id         Int?
+
+  @@index([artist_review_reminder_id], map: "artist_review_reminder_id")
+  @@index([booking_reminder_id], map: "booking_reminder_id")
+  @@index([payout_updates_id], map: "payout_updates_id")
+}
+
+model payment_method {
+  id     Int     @id @default(autoincrement())
+  name   String  @db.VarChar(100)
+  email  String? @db.VarChar(255)
+  number String? @db.VarChar(50)
+}
+
+model payment_user {
+  id               Int @id @default(autoincrement())
+  payout_method_id Int
+  user_id          Int
+
+  @@index([payout_method_id], map: "payout_method_id")
+  @@index([user_id], map: "user_id")
+}
+
+model payout_method {
+  id     Int     @id @default(autoincrement())
+  name   String  @db.VarChar(50)
+  email  String? @db.VarChar(255)
+  number String? @db.VarChar(50)
+}
+
+model payout_method_user {
+  id               Int @id @default(autoincrement())
+  payout_method_id Int
+  user_id          Int
+
+  @@index([payout_method_id], map: "payout_method_id")
+  @@index([user_id], map: "user_id")
+}
+
+model payout_updates {
+  id           Int      @id @default(autoincrement())
+  email        Boolean? @default(true)
+  sms          Boolean? @default(false)
+  notification Boolean? @default(true)
+}
+
+model studio_settings {
+  id                       Int                         @id @default(autoincrement())
+  user_id                  Int
+  notification_settings_id Int?
+  visibility               studio_settings_visibility  @default(public)
+  show_reviews_public      Boolean?                    @default(true)
+  language_id              Int?
+  currency                 studio_settings_currency    @default(USD)
+  time_format              studio_settings_time_format @default(hour)
+  timezone                 studio_settings_timezone    @default(London)
+
+  @@index([language_id], map: "language_id")
+  @@index([notification_settings_id], map: "notification_settings_id")
+  @@index([user_id], map: "user_id")
+}
+
+enum schedule_day {
+  monday
+  tuesday
+  wednesday
+  thursday
+  friday
+  saturday
+  sunday
+}
+
+enum portfolio_type {
+  image
+  video
+  audio
+  document
+}
+
+enum service_price_type {
+  hour
+  session
+  day
+}
+
+enum transactions_status {
+  pending
+  completed
+  failed
+  refunded
+}
+
+enum artist_experience_level {
+  beginner
+  intermediate
+  advanced
+  professional
+}
+
+enum account_status {
+  connected
+  disconnected
+}
+
+enum studio_settings_visibility {
+  public
+  studios_only @map("studios only")
+  private
+}
+
+enum studio_settings_currency {
+  USD
+  EUR
+  GBP
+  JPY
+  CAD
+  AUD
+}
+
+enum studio_settings_time_format {
+  hour12 @map("12-hour")
+  hour   @map("24-hour")
+}
+
+enum studio_settings_timezone {
+  Eastern_Time__US___Canada_ @map("Eastern Time (US & Canada)")
+  Central_Time__US___Canada_ @map("Central Time (US & Canada)")
+  Pacific_Time__US___Canada_ @map("Pacific Time (US & Canada)")
+  London
+  Paris
+  Tokyo
+}
