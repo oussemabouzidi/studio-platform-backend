@@ -3,7 +3,7 @@ import pool from "../database.js";
 const AdminModel = {
   // Fetch all artists
   async getAllArtists() {
-  const [rows] = await pool.query(`
+  const { rows } = await pool.query(`
     SELECT 
       a.id,
       a.user_id,
@@ -11,7 +11,7 @@ const AdminModel = {
       a.email,
       a.status,
       a.instagram,
-      GROUP_CONCAT(g.name SEPARATOR ', ') AS genre_name,
+      STRING_AGG(g.name, ', ') AS "genre_name",
       a.verified
     FROM artist a
     LEFT JOIN artist_genre ag ON a.id = ag.artist_id
@@ -22,108 +22,123 @@ const AdminModel = {
 
   // Fetch all studios
   async getAllStudios() {
-    const [rows] = await pool.query(`SELECT s.id, s.user_id, s.name, s.location, s.status, COUNT(DISTINCT b.id) AS number_of_bookings, AVG(r.rating) AS average_rating, COALESCE(SUM(t.amount), 0) AS total_revenue FROM studio s LEFT JOIN booking b ON s.id = b.studio_id LEFT JOIN review r ON s.id = r.studio_id LEFT JOIN transactions t ON s.id = t.studio_id GROUP BY s.id, s.user_id, s.name, s.location`);
+    const { rows } = await pool.query(`
+      SELECT 
+        s.id,
+        s.user_id,
+        s.name,
+        s.location,
+        s.status,
+        COUNT(DISTINCT b.id) AS number_of_bookings,
+        AVG(r.rating) AS average_rating,
+        COALESCE(SUM(t.amount), 0) AS total_revenue
+      FROM studio s
+      LEFT JOIN booking b ON s.id = b.studio_id
+      LEFT JOIN review r ON s.id = r.studio_id
+      LEFT JOIN transactions t ON s.id = t.studio_id
+      GROUP BY s.id, s.user_id, s.name, s.location, s.status
+    `);
     return rows;
   },
 
   // Fetch artist by ID
   async getArtistById(id) {
-    const [rows] = await pool.query(`SELECT * FROM artist WHERE id = ?`, [id]);
+    const { rows } = await pool.query(`SELECT * FROM artist WHERE id = $1`, [id]);
     return rows[0] || null;
   },
 
   // Fetch studio by ID
   async getStudioById(id) {
-    const [rows] = await pool.query(`SELECT * FROM studio WHERE id = ?`, [id]);
+    const { rows } = await pool.query(`SELECT * FROM studio WHERE id = $1`, [id]);
     return rows[0] || null;
   },
 
   // Update artist status (if you actually have a 'status' column)
   async updateArtistStatus(id, status) {
-    const [result] = await pool.query(
-      `UPDATE artist SET status = ? WHERE id = ?`,
+    const result = await pool.query(
+      `UPDATE artist SET status = $1 WHERE id = $2`,
       [status, id]
     );
-    return result.affectedRows > 0;
+    return result.rowCount > 0;
   },
 
   // Update artist verification (if you have a 'verified' column)
   async updateArtistVerification(id, verified) {
-    const [result] = await pool.query(
-      `UPDATE artist SET verified = ? WHERE id = ?`,
-      [verified ? 1 : 0, id]
+    const result = await pool.query(
+      `UPDATE artist SET verified = $1 WHERE id = $2`,
+      [!!verified, id]
     );
-    return result.affectedRows > 0;
+    return result.rowCount > 0;
   },
 
   // Update studio activation
   async updateStudioActivation(id, activated) {
-    const [result] = await pool.query(
-      `UPDATE studio SET activated = ? WHERE id = ?`,
-      [activated ? 1 : 0, id]
+    const result = await pool.query(
+      `UPDATE studio SET activated = $1 WHERE id = $2`,
+      [!!activated, id]
     );
-    return result.affectedRows > 0;
+    return result.rowCount > 0;
   },
 
   // Update studio status
   async updateStudioStatus(id, status) {
-    const [result] = await pool.query(
-      `UPDATE studio SET status = ? WHERE id = ?`,
+    const result = await pool.query(
+      `UPDATE studio SET status = $1 WHERE id = $2`,
       [status, id]
     );
-    return result.affectedRows > 0;
+    return result.rowCount > 0;
   },
 
 
   // Get user stats
   async getUserStats() {
-    const [[{ artistCount }]] = await pool.query(
-      `SELECT COUNT(*) AS artistCount FROM artist`
+    const { rows: artistRows } = await pool.query(
+      `SELECT COUNT(*)::int AS "artistCount" FROM artist`
     );
-    const [[{ studioCount }]] = await pool.query(
-      `SELECT COUNT(*) AS studioCount FROM studio`
+    const { rows: studioRows } = await pool.query(
+      `SELECT COUNT(*)::int AS "studioCount" FROM studio`
     );
-    return { artistCount, studioCount };
+    return { artistCount: artistRows[0]?.artistCount ?? 0, studioCount: studioRows[0]?.studioCount ?? 0 };
   },
 
   // Get revenue stats
   async getRevenueStats() {
-    const [[{ totalRevenue }]] = await pool.query(
-      `SELECT COALESCE(SUM(amount), 0) AS totalRevenue 
+    const { rows } = await pool.query(
+      `SELECT COALESCE(SUM(amount), 0) AS "totalRevenue"
        FROM transactions 
        WHERE status = 'completed'`
     );
-    return { totalRevenue };
+    return { totalRevenue: rows[0]?.totalRevenue ?? 0 };
   },
 
   // Get booking stats
   async getBookingStats() {
-    const [[{ totalBookings }]] = await pool.query(
-      `SELECT COUNT(*) AS totalBookings FROM booking`
+    const { rows } = await pool.query(
+      `SELECT COUNT(*)::int AS "totalBookings" FROM booking`
     );
-    return { totalBookings };
+    return { totalBookings: rows[0]?.totalBookings ?? 0 };
   },
 
   // Get studio stats
   async getStudioStats() {
-    const [[{ totalStudios }]] = await pool.query(
-      `SELECT COUNT(*) AS totalStudios FROM studio`
+    const { rows } = await pool.query(
+      `SELECT COUNT(*)::int AS "totalStudios" FROM studio`
     );
-    return { totalStudios };
+    return { totalStudios: rows[0]?.totalStudios ?? 0 };
   },
 
   // Get gamification stats
   async getGamificationStats() {
-    const [[{ totalPoints }]] = await pool.query(
-      `SELECT COALESCE(SUM(total_points), 0) AS totalPoints FROM points`
+    const { rows: totalRows } = await pool.query(
+      `SELECT COALESCE(SUM(total_points), 0) AS "totalPoints" FROM points`
     );
 
-    const [levelCounts] = await pool.query(
-      `SELECT level, COUNT(level) AS count FROM points GROUP BY level`
+    const { rows: levelCounts } = await pool.query(
+      `SELECT level, COUNT(level)::int AS "count" FROM points GROUP BY level`
     );
 
     return {
-      totalPoints,
+      totalPoints: totalRows[0]?.totalPoints ?? 0,
       levelCounts
     };
   }

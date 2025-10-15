@@ -16,10 +16,10 @@ const ArtistModel = {
   s.avatar_link,
   s.location,
   ROUND(AVG(r.rating), 2) AS rating,
-  GROUP_CONCAT(DISTINCT t.name) AS types,
-  GROUP_CONCAT(DISTINCT g.name) AS genres,
-  GROUP_CONCAT(DISTINCT e.name) AS equipment,
-  GROUP_CONCAT(DISTINCT l.name) AS languages,
+  STRING_AGG(DISTINCT t.name, ',') AS types,
+  STRING_AGG(DISTINCT g.name, ',') AS genres,
+  STRING_AGG(DISTINCT e.name, ',') AS equipment,
+  STRING_AGG(DISTINCT l.name, ',') AS languages,
   gf.normal_level
 FROM studio s
 LEFT JOIN review r ON s.id = r.studio_id
@@ -32,11 +32,11 @@ LEFT JOIN equipement e ON se.equipement_id = e.id
 LEFT JOIN studio_language sl ON s.id = sl.studio_id
 LEFT JOIN language l ON sl.language_id = l.id
 LEFT JOIN gamification gf ON gf.user_id = s.id AND gf.user_type = 'studio'
-GROUP BY s.id
+GROUP BY s.id, s.name, s.avatar_link, s.location, gf.normal_level
 
     `;
 
-    const [rows] = await pool.query(sql);
+    const { rows } = await pool.query(sql);
 
     return rows.map(studio => ({
       id: studio.id,
@@ -84,10 +84,10 @@ GROUP BY s.id
       FROM booking b
       JOIN studio s ON b.studio_id = s.id
       LEFT JOIN service srv ON b.service_id = srv.id
-      WHERE b.user_id = ?
+      WHERE b.user_id = $1
     `;
     
-    const [rows] = await pool.query(sql, [artistId]);
+    const { rows } = await pool.query(sql, [artistId]);
     return rows;
   },  
 
@@ -97,22 +97,22 @@ GROUP BY s.id
       SELECT r.*, s.* 
       FROM review r 
       JOIN studio s ON r.studio_id = s.id
-      WHERE r.artist_id = ?`;
-    const [rows] = await pool.query(sql, [artistId]);
+      WHERE r.artist_id = $1`;
+    const { rows } = await pool.query(sql, [artistId]);
     return rows;
   },
 
   // Fetch points
   async getPoints(artistId) {
-    const sql = `SELECT * FROM points WHERE artist_id = ?`;
-    const [rows] = await pool.query(sql, [artistId]);
+    const sql = `SELECT * FROM points WHERE artist_id = $1`;
+    const { rows } = await pool.query(sql, [artistId]);
     return rows[0] || null;
   },
 
   // Fetch notifications
   async getNotifications(artistId) {
-    const sql = `SELECT * FROM notification WHERE user_id = ?`;
-    const [rows] = await pool.query(sql, [artistId]);
+    const sql = `SELECT * FROM notification WHERE user_id = $1`;
+    const { rows } = await pool.query(sql, [artistId]);
     return rows;
   },
 
@@ -125,10 +125,10 @@ GROUP BY s.id
         s.avatar_link,
         s.location,
         ROUND(AVG(r.rating), 2) AS rating,
-        GROUP_CONCAT(DISTINCT t.name) AS types,
-        GROUP_CONCAT(DISTINCT g.name) AS genres,
-        GROUP_CONCAT(DISTINCT e.name) AS equipment,
-        GROUP_CONCAT(DISTINCT l.name) AS languages
+        STRING_AGG(DISTINCT t.name, ',') AS types,
+        STRING_AGG(DISTINCT g.name, ',') AS genres,
+        STRING_AGG(DISTINCT e.name, ',') AS equipment,
+        STRING_AGG(DISTINCT l.name, ',') AS languages
       FROM favorite_studio fs
       JOIN studio s ON fs.studio_id = s.id
       LEFT JOIN review r ON s.id = r.studio_id
@@ -140,11 +140,11 @@ GROUP BY s.id
       LEFT JOIN equipement e ON se.equipement_id = e.id
       LEFT JOIN studio_language sl ON s.id = sl.studio_id
       LEFT JOIN language l ON sl.language_id = l.id
-      WHERE fs.artist_id = ?
-      GROUP BY s.id
+      WHERE fs.artist_id = $1
+      GROUP BY s.id, s.name, s.avatar_link, s.location
     `;
 
-    const [rows] = await pool.query(sql, [artistId]);
+    const { rows } = await pool.query(sql, [artistId]);
 
     return rows.map(studio => ({
       id: studio.id,
@@ -166,7 +166,7 @@ GROUP BY s.id
   // Fetch studio details
   async fetchStudioDetails(studioId) {
     // 1️⃣ Base studio info
-    const [studioRows] = await pool.query(
+    const { rows: studioRows } = await pool.query(
       `
       SELECT 
         s.id,
@@ -188,7 +188,7 @@ GROUP BY s.id
           WHERE r.studio_id = s.id
         ) AS rating
       FROM studio s
-      WHERE s.id = ?
+      WHERE s.id = $1
       `,
       [studioId]
     );
@@ -202,41 +202,41 @@ GROUP BY s.id
         SELECT g.name 
         FROM studio_genre sg 
         JOIN genre g ON sg.genre_id = g.id
-        WHERE sg.studio_id = ?`, [studioId]),
+        WHERE sg.studio_id = $1`, [studioId]),
 
       pool.query(`
         SELECT t.name 
         FROM studio_type st 
         JOIN type t ON st.type_id = t.id
-        WHERE st.studio_id = ?`, [studioId]),
+        WHERE st.studio_id = $1`, [studioId]),
 
       pool.query(`
         SELECT a.name 
         FROM studio_amenities sa 
         JOIN amenities a ON sa.amenitie_id = a.id
-        WHERE sa.studio_id = ?`, [studioId]),
+        WHERE sa.studio_id = $1`, [studioId]),
 
       pool.query(`
         SELECT e.name 
         FROM studio_equipement se 
         JOIN equipement e ON se.equipement_id = e.id
-        WHERE se.studio_id = ?`, [studioId]),
+        WHERE se.studio_id = $1`, [studioId]),
 
       pool.query(`
         SELECT l.name 
         FROM studio_language sl 
         JOIN language l ON sl.language_id = l.id
-        WHERE sl.studio_id = ?`, [studioId]),
+        WHERE sl.studio_id = $1`, [studioId]),
 
       pool.query(`
-        SELECT CONCAT(sc.day, ' ', sc.start_time, '-', sc.end_time) AS slot
+        SELECT CONCAT(sc.day, ' ', sc.start_time::text, '-', sc.end_time::text) AS slot
         FROM studio_schedule ss
         JOIN schedule sc ON ss.schedule_id = sc.id
-        WHERE ss.studio_id = ?`, [studioId])
+        WHERE ss.studio_id = $1`, [studioId])
     ]);
 
     // 3️⃣ Services with tags
-    const [servicesRows] = await pool.query(
+    const { rows: servicesRows } = await pool.query(
       `
       SELECT 
         sv.id,
@@ -249,18 +249,18 @@ GROUP BY s.id
         sv.available_timing
       FROM studio_service ss
       JOIN service sv ON ss.service_id = sv.id
-      WHERE ss.studio_id = ?
+      WHERE ss.studio_id = $1
       `,
       [studioId]
     );
 
     // Attach tags
     for (let service of servicesRows) {
-      const [tags] = await pool.query(
+      const { rows: tags } = await pool.query(
         `SELECT t.name 
         FROM service_tag st 
         JOIN tag t ON st.tag_id = t.id
-        WHERE st.service_id = ?`,
+        WHERE st.service_id = $1`,
         [service.id]
       );
       service.tags = tags.map(t => t.name).join(", ");
@@ -308,8 +308,8 @@ GROUP BY s.id
 
   // Fetch studio by id
   async getStudioById(studioId) {
-    const sql = `SELECT * FROM studio WHERE id = ?`;
-    const [rows] = await pool.query(sql, [studioId]);
+    const sql = `SELECT * FROM studio WHERE id = $1`;
+    const { rows } = await pool.query(sql, [studioId]);
     return rows[0] || null;
   },
 
@@ -346,51 +346,51 @@ GROUP BY s.id
     FROM artist a
 
     LEFT JOIN (
-      SELECT ag.artist_id, GROUP_CONCAT(DISTINCT g.name) AS genres
+      SELECT ag.artist_id, STRING_AGG(DISTINCT g.name, ',') AS genres
       FROM artist_genre ag
       JOIN genre g ON ag.genre_id = g.id
       GROUP BY ag.artist_id
     ) g ON a.id = g.artist_id
 
     LEFT JOIN (
-      SELECT ai.artist_id, GROUP_CONCAT(DISTINCT i.name) AS instruments
+      SELECT ai.artist_id, STRING_AGG(DISTINCT i.name, ',') AS instruments
       FROM artist_instruments ai
       JOIN instruments i ON ai.instrument_id = i.id
       GROUP BY ai.artist_id
     ) i ON a.id = i.artist_id
 
     LEFT JOIN (
-      SELECT al.artist_id, GROUP_CONCAT(DISTINCT l.name) AS languages
+      SELECT al.artist_id, STRING_AGG(DISTINCT l.name, ',') AS languages
       FROM artist_language al
       JOIN language l ON al.language_id = l.id
       GROUP BY al.artist_id
     ) l ON a.id = l.artist_id
 
     LEFT JOIN (
-      SELECT ac.artist_id, GROUP_CONCAT(DISTINCT c.name) AS collaborators
+      SELECT ac.artist_id, STRING_AGG(DISTINCT c.name, ',') AS collaborators
       FROM artist_colaborators ac
       JOIN colaborators c ON ac.colaborators_id = c.id
       GROUP BY ac.artist_id
     ) c ON a.id = c.artist_id
 
     LEFT JOIN (
-      SELECT ap.artist_id, JSON_ARRAYAGG(JSON_OBJECT('url', p.url, 'title', p.title, 'type', p.type)) AS portfolio
+      SELECT ap.artist_id, json_agg(json_build_object('url', p.url, 'title', p.title, 'type', p.type)) AS portfolio
       FROM artist_portfolio ap
       JOIN portfolio p ON ap.portfolio_id = p.id
       GROUP BY ap.artist_id
     ) p ON a.id = p.artist_id
 
     LEFT JOIN (
-      SELECT ad.artist_id, JSON_ARRAYAGG(JSON_OBJECT('name', d.name, 'file', d.file)) AS demos
+      SELECT ad.artist_id, json_agg(json_build_object('name', d.name, 'file', d.file)) AS demos
       FROM artist_demo ad
       JOIN demo d ON ad.demo_id = d.id
       GROUP BY ad.artist_id
     ) d ON a.id = d.artist_id
 
-    WHERE a.id = ?
+    WHERE a.id = $1
   `;
 
-  const [rows] = await pool.query(sql, [artistId]);
+  const { rows } = await pool.query(sql, [artistId]);
   if (!rows.length) return null;
 
   const r = rows[0];
@@ -430,7 +430,7 @@ GROUP BY s.id
       FROM studio_settings s
       LEFT JOIN language l ON s.language_id = l.id
       LEFT JOIN notification_settings ns ON s.notification_settings_id = ns.id
-      WHERE s.user_id = ?`,
+      WHERE s.user_id = $1`,
       [userId]
     );
 
@@ -445,7 +445,7 @@ GROUP BY s.id
 
     if (studioSettings?.booking_reminder_id) {
       const [bookingRows] = await pool.query(
-        `SELECT email, sms, notification FROM booking_reminder WHERE id = ?`,
+        `SELECT email, sms, notification FROM booking_reminder WHERE id = $1`,
         [studioSettings.booking_reminder_id]
       );
       if (bookingRows[0]) {
@@ -459,7 +459,7 @@ GROUP BY s.id
 
     if (studioSettings?.artist_review_reminder_id) {
       const [reviewRows] = await pool.query(
-        `SELECT email, sms, notification FROM artist_review_reminder WHERE id = ?`,
+        `SELECT email, sms, notification FROM artist_review_reminder WHERE id = $1`,
         [studioSettings.artist_review_reminder_id]
       );
       if (reviewRows[0]) {
@@ -473,7 +473,7 @@ GROUP BY s.id
 
     if (studioSettings?.payout_updates_id) {
       const [payoutRows] = await pool.query(
-        `SELECT email, sms, notification FROM payout_updates WHERE id = ?`,
+        `SELECT email, sms, notification FROM payout_updates WHERE id = $1`,
         [studioSettings.payout_updates_id]
       );
       if (payoutRows[0]) {
@@ -490,7 +490,7 @@ GROUP BY s.id
       `SELECT pm.id, pm.name AS type, pm.number AS last4, pm.email, pu.user_id
       FROM payout_method_user pu
       JOIN payout_method pm ON pu.payout_method_id = pm.id
-      WHERE pu.user_id = ?`,
+      WHERE pu.user_id = $1`,
       [userId]
     );
 
@@ -507,7 +507,7 @@ GROUP BY s.id
       `SELECT a.id, a.account AS provider, cau.user_id, a.status
       FROM connected_account_user cau
       JOIN account a ON cau.account_id = a.id
-      WHERE cau.user_id = ?`,
+      WHERE cau.user_id = $1`,
       [userId]
     );
 
@@ -522,7 +522,7 @@ GROUP BY s.id
       `SELECT t.id, t.transaction_date AS date, s.name AS studio, t.amount, 0 AS fee
       FROM transactions t
       LEFT JOIN studio s ON t.studio_id = s.id
-      WHERE t.artist_id = ?`,
+      WHERE t.artist_id = $1`,
       [userId]
     );
 
@@ -567,15 +567,15 @@ GROUP BY s.id
       SELECT pu.*, pm.*
       FROM payment_user pu
       JOIN payment_method pm ON pu.payout_method_id = pm.id
-      WHERE pu.user_id = ?`;
-    const [rows] = await pool.query(sql, [userId]);
+      WHERE pu.user_id = $1`;
+    const { rows } = await pool.query(sql, [userId]);
     return rows;
   },
 
   // Fetch payment history (transactions)
   async getPaymentHistory(artistId) {
-    const sql = `SELECT * FROM transactions WHERE artist_id = ?`;
-    const [rows] = await pool.query(sql, [artistId]);
+    const sql = `SELECT * FROM transactions WHERE artist_id = $1`;
+    const { rows } = await pool.query(sql, [artistId]);
     return rows;
   },
 
@@ -585,8 +585,8 @@ GROUP BY s.id
       SELECT cau.*, a.*
       FROM connected_account_user cau
       JOIN account a ON cau.account_id = a.id
-      WHERE cau.user_id = ?`;
-    const [rows] = await pool.query(sql, [userId]);
+      WHERE cau.user_id = $1`;
+    const { rows } = await pool.query(sql, [userId]);
     return rows;
   },
 
@@ -597,9 +597,9 @@ GROUP BY s.id
     const sql = `
       SELECT visibility 
       FROM artist_settings 
-      WHERE user_id = ? 
+      WHERE user_id = $1 
       LIMIT 1`;
-    const [rows] = await pool.query(sql, [userId]);
+    const { rows } = await pool.query(sql, [userId]);
     return rows[0] || null;
   },
 
@@ -608,9 +608,9 @@ GROUP BY s.id
     const sql = `
       SELECT show_reviews_public 
       FROM artist_settings 
-      WHERE user_id = ? 
+      WHERE user_id = $1 
       LIMIT 1`;
-    const [rows] = await pool.query(sql, [userId]);
+    const { rows } = await pool.query(sql, [userId]);
     return rows[0] || null;
   },
 
@@ -619,9 +619,9 @@ GROUP BY s.id
     const sql = `
       SELECT language_id, currency, time_format 
       FROM artist_settings 
-      WHERE user_id = ? 
+      WHERE user_id = $1 
       LIMIT 1`;
-    const [rows] = await pool.query(sql, [userId]);
+    const { rows } = await pool.query(sql, [userId]);
     return rows[0] || null;
   },
 
@@ -629,50 +629,46 @@ GROUP BY s.id
 
   async updatePaymentMethod(id, data) {
     // Assuming data is an object with columns to update for payout_method
-    const fields = Object.keys(data).map(k => `${k} = ?`).join(', ');
+    const fields = Object.keys(data).map((k, i) => `${k} = $${i + 1}`).join(', ');
     const values = Object.values(data);
-    values.push(id);
-    const sql = `UPDATE payment_method SET ${fields} WHERE id = ?`;
-    const [result] = await pool.query(sql, values);
+    const sql = `UPDATE payment_method SET ${fields} WHERE id = $${values.length + 1}`;
+    const result = await pool.query(sql, [...values, id]);
     return result;
   },
 
   async updatePaymentHistory(id, data) {
-    const fields = Object.keys(data).map(k => `${k} = ?`).join(', ');
+    const fields = Object.keys(data).map((k, i) => `${k} = $${i + 1}`).join(', ');
     const values = Object.values(data);
-    values.push(id);
-    const sql = `UPDATE transactions SET ${fields} WHERE id = ?`;
-    const [result] = await pool.query(sql, values);
+    const sql = `UPDATE transactions SET ${fields} WHERE id = $${values.length + 1}`;
+    const result = await pool.query(sql, [...values, id]);
     return result;
   },
 
   async updateConnectedAccount(id, data) {
-    const fields = Object.keys(data).map(k => `${k} = ?`).join(', ');
+    const fields = Object.keys(data).map((k, i) => `${k} = $${i + 1}`).join(', ');
     const values = Object.values(data);
-    values.push(id);
-    const sql = `UPDATE account SET ${fields} WHERE id = ?`;
-    const [result] = await pool.query(sql, values);
+    const sql = `UPDATE account SET ${fields} WHERE id = $${values.length + 1}`;
+    const result = await pool.query(sql, [...values, id]);
     return result;
   },
 
   async updateProfileVisibility(userId, visibility) {
-    const sql = `UPDATE artist_settings SET visibility = ? WHERE user_id = ?`;
-    const [result] = await pool.query(sql, [visibility, userId]);
+    const sql = `UPDATE artist_settings SET visibility = $1 WHERE user_id = $2`;
+    const result = await pool.query(sql, [visibility, userId]);
     return result;
   },
 
   async updateContentVisibility(userId, status) {
-    const sql = `UPDATE artist_settings SET show_reviews_public = ? WHERE user_id = ?`;
-    const [result] = await pool.query(sql, [status, userId]);
+    const sql = `UPDATE artist_settings SET show_reviews_public = $1 WHERE user_id = $2`;
+    const result = await pool.query(sql, [status, userId]);
     return result;
   },
 
   async updateLocalizationSettings(userId, data) {
-    const fields = Object.keys(data).map(k => `${k} = ?`).join(', ');
+    const fields = Object.keys(data).map((k, i) => `${k} = $${i + 1}`).join(', ');
     const values = Object.values(data);
-    values.push(userId);
-    const sql = `UPDATE artist_settings SET ${fields} WHERE user_id = ?`;
-    const [result] = await pool.query(sql, values);
+    const sql = `UPDATE artist_settings SET ${fields} WHERE user_id = $${values.length + 1}`;
+    const result = await pool.query(sql, [...values, userId]);
     return result;
   },
 
@@ -687,9 +683,9 @@ GROUP BY s.id
         connectedAccounts
     } = settingsData;
 
-    const conn = await pool.getConnection();
+    const conn = await pool.connect();
     try {
-        await conn.beginTransaction();
+        await conn.query('BEGIN');
 
         // Debug: Log the SQL query and parameters
         const privacyQuery = `UPDATE studio_settings 
@@ -738,8 +734,8 @@ GROUP BY s.id
           );
 
           // 2️⃣ Get notification settings ID
-          const [nsRows] = await conn.query(
-              `SELECT notification_settings_id FROM studio_settings WHERE user_id = ?`,
+          const { rows: nsRows } = await conn.query(
+              `SELECT notification_settings_id FROM studio_settings WHERE user_id = $1`,
               [userId]
           );
           const nsId = nsRows[0]?.notification_settings_id;
@@ -747,19 +743,19 @@ GROUP BY s.id
           if (nsId) {
               // Update booking_reminder
               if (notifications.bookingReminder) {
-                  const [brRows] = await conn.query(
-                      `SELECT booking_reminder_id FROM notification_settings WHERE id = ?`,
+                  const { rows: brRows } = await conn.query(
+                      `SELECT booking_reminder_id FROM notification_settings WHERE id = $1`,
                       [nsId]
                   );
                   if (brRows[0]?.booking_reminder_id) {
                       await conn.query(
                           `UPDATE booking_reminder 
-                          SET email = ?, sms = ?, notification = ?
-                          WHERE id = ?`,
+                          SET email = $1, sms = $2, notification = $3
+                          WHERE id = $4`,
                           [
-                              notifications.bookingReminder.email ? 1 : 0,
-                              notifications.bookingReminder.sms ? 1 : 0,
-                              notifications.bookingReminder.push ? 1 : 0,
+                              notifications.bookingReminder.email ? true : false,
+                              notifications.bookingReminder.sms ? true : false,
+                              notifications.bookingReminder.push ? true : false,
                               brRows[0].booking_reminder_id
                           ]
                       );
@@ -768,19 +764,19 @@ GROUP BY s.id
 
               // Update artist_review_reminder for bookingConfirmation
               if (notifications.bookingConfirmation) {
-                  const [arrRows] = await conn.query(
-                      `SELECT artist_review_reminder_id FROM notification_settings WHERE id = ?`,
+                  const { rows: arrRows } = await conn.query(
+                      `SELECT artist_review_reminder_id FROM notification_settings WHERE id = $1`,
                       [nsId]
                   );
                   if (arrRows[0]?.artist_review_reminder_id) {
                       await conn.query(
                           `UPDATE artist_review_reminder 
-                          SET email = ?, sms = ?, notification = ?
-                          WHERE id = ?`,
+                          SET email = $1, sms = $2, notification = $3
+                          WHERE id = $4`,
                           [
-                              notifications.bookingConfirmation.email ? 1 : 0,
-                              notifications.bookingConfirmation.sms ? 1 : 0,
-                              notifications.bookingConfirmation.push ? 1 : 0,
+                              notifications.bookingConfirmation.email ? true : false,
+                              notifications.bookingConfirmation.sms ? true : false,
+                              notifications.bookingConfirmation.push ? true : false,
                               arrRows[0].artist_review_reminder_id
                           ]
                       );
@@ -789,19 +785,19 @@ GROUP BY s.id
 
               // Update payout_updates for platformNews
               if (notifications.platformNews) {
-                  const [puRows] = await conn.query(
-                      `SELECT payout_updates_id FROM notification_settings WHERE id = ?`,
+                  const { rows: puRows } = await conn.query(
+                      `SELECT payout_updates_id FROM notification_settings WHERE id = $1`,
                       [nsId]
                   );
                   if (puRows[0]?.payout_updates_id) {
                       await conn.query(
                           `UPDATE payout_updates 
-                          SET email = ?, sms = ?, notification = ?
-                          WHERE id = ?`,
+                          SET email = $1, sms = $2, notification = $3
+                          WHERE id = $4`,
                           [
-                              notifications.platformNews.email ? 1 : 0,
-                              notifications.platformNews.sms ? 1 : 0,
-                              notifications.platformNews.push ? 1 : 0,
+                              notifications.platformNews.email ? true : false,
+                              notifications.platformNews.sms ? true : false,
+                              notifications.platformNews.push ? true : false,
                               puRows[0].payout_updates_id
                           ]
                       );
@@ -826,10 +822,10 @@ GROUP BY s.id
                   ]
               );
           }
-          await conn.commit();
+          await conn.query('COMMIT');
         return { success: true, message: "Settings updated successfully" };
     } catch (error) {
-        await conn.rollback();
+        await conn.query('ROLLBACK');
         console.error("SQL Error:", error.message);
         console.error("Full error:", error);
         throw new Error(`Failed to update settings: ${error.message}`);
@@ -859,9 +855,9 @@ GROUP BY s.id
       portfolio
     } = profileData;
 
-    const conn = await pool.getConnection();
+    const conn = await pool.connect();
     try {
-      await conn.beginTransaction();
+      await conn.query('BEGIN');
 
       // 1. Update main artist table
       await conn.query(
@@ -889,106 +885,106 @@ GROUP BY s.id
       );
 
       // 2. Update genres (delete existing and insert new)
-      await conn.query('DELETE FROM artist_genre WHERE artist_id = ?', [artistId]);
+      await conn.query('DELETE FROM artist_genre WHERE artist_id = $1', [artistId]);
       for (const genre of genres) {
         // Check if genre exists, if not create it
-        let [genreRows] = await conn.query('SELECT id FROM genre WHERE name = ?', [genre]);
+        let { rows: genreRows } = await conn.query('SELECT id FROM genre WHERE name = $1', [genre]);
         let genreId;
         
         if (genreRows.length === 0) {
-          const [insertResult] = await conn.query('INSERT INTO genre (name) VALUES (?)', [genre]);
-          genreId = insertResult.insertId;
+          const { rows } = await conn.query('INSERT INTO genre (name) VALUES ($1) RETURNING id', [genre]);
+          genreId = rows[0].id;
         } else {
           genreId = genreRows[0].id;
         }
         
-        await conn.query('INSERT INTO artist_genre (artist_id, genre_id) VALUES (?, ?)', [artistId, genreId]);
+        await conn.query('INSERT INTO artist_genre (artist_id, genre_id) VALUES ($1, $2)', [artistId, genreId]);
       }
 
       // 3. Update instruments (similar to genres)
-      await conn.query('DELETE FROM artist_instruments WHERE artist_id = ?', [artistId]);
+      await conn.query('DELETE FROM artist_instruments WHERE artist_id = $1', [artistId]);
       for (const instrument of instruments) {
-        let [instrumentRows] = await conn.query('SELECT id FROM instruments WHERE name = ?', [instrument]);
+        let { rows: instrumentRows } = await conn.query('SELECT id FROM instruments WHERE name = $1', [instrument]);
         let instrumentId;
         
         if (instrumentRows.length === 0) {
-          const [insertResult] = await conn.query('INSERT INTO instruments (name) VALUES (?)', [instrument]);
-          instrumentId = insertResult.insertId;
+          const { rows } = await conn.query('INSERT INTO instruments (name) VALUES ($1) RETURNING id', [instrument]);
+          instrumentId = rows[0].id;
         } else {
           instrumentId = instrumentRows[0].id;
         }
         
-        await conn.query('INSERT INTO artist_instruments (artist_id, instrument_id) VALUES (?, ?)', [artistId, instrumentId]);
+        await conn.query('INSERT INTO artist_instruments (artist_id, instrument_id) VALUES ($1, $2)', [artistId, instrumentId]);
       }
 
       // 4. Update languages
-      await conn.query('DELETE FROM artist_language WHERE artist_id = ?', [artistId]);
+      await conn.query('DELETE FROM artist_language WHERE artist_id = $1', [artistId]);
       for (const language of languages) {
-        let [languageRows] = await conn.query('SELECT id FROM language WHERE name = ?', [language]);
+        let { rows: languageRows } = await conn.query('SELECT id FROM language WHERE name = $1', [language]);
         let languageId;
         
         if (languageRows.length === 0) {
-          const [insertResult] = await conn.query('INSERT INTO language (name) VALUES (?)', [language]);
-          languageId = insertResult.insertId;
+          const { rows } = await conn.query('INSERT INTO language (name) VALUES ($1) RETURNING id', [language]);
+          languageId = rows[0].id;
         } else {
           languageId = languageRows[0].id;
         }
         
-        await conn.query('INSERT INTO artist_language (artist_id, language_id) VALUES (?, ?)', [artistId, languageId]);
+        await conn.query('INSERT INTO artist_language (artist_id, language_id) VALUES ($1, $2)', [artistId, languageId]);
       }
 
       // 5. Update collaborators
-      await conn.query('DELETE FROM artist_colaborators WHERE artist_id = ?', [artistId]);
+      await conn.query('DELETE FROM artist_colaborators WHERE artist_id = $1', [artistId]);
       for (const collaborator of collaborators) {
-        let [collabRows] = await conn.query('SELECT id FROM colaborators WHERE name = ?', [collaborator]);
+        let { rows: collabRows } = await conn.query('SELECT id FROM colaborators WHERE name = $1', [collaborator]);
         let collabId;
         
         if (collabRows.length === 0) {
-          const [insertResult] = await conn.query('INSERT INTO colaborators (name) VALUES (?)', [collaborator]);
-          collabId = insertResult.insertId;
+          const { rows } = await conn.query('INSERT INTO colaborators (name) VALUES ($1) RETURNING id', [collaborator]);
+          collabId = rows[0].id;
         } else {
           collabId = collabRows[0].id;
         }
         
-        await conn.query('INSERT INTO artist_colaborators (artist_id, colaborators_id) VALUES (?, ?)', [artistId, collabId]);
+        await conn.query('INSERT INTO artist_colaborators (artist_id, colaborators_id) VALUES ($1, $2)', [artistId, collabId]);
       }
 
       // 6. Update portfolio
-      await conn.query('DELETE FROM artist_portfolio WHERE artist_id = ?', [artistId]);
+      await conn.query('DELETE FROM artist_portfolio WHERE artist_id = $1', [artistId]);
       for (const item of portfolio) {
         // Insert into portfolio table
-        const [portfolioResult] = await conn.query(
-          'INSERT INTO portfolio (url, type, title) VALUES (?, ?, ?)',
+        const { rows: portfolioResult } = await conn.query(
+          'INSERT INTO portfolio (url, type, title) VALUES ($1, $2, $3) RETURNING id',
           [item.url, item.type, item.title]
         );
         
         // Link to artist
         await conn.query(
-          'INSERT INTO artist_portfolio (artist_id, portfolio_id) VALUES (?, ?)',
-          [artistId, portfolioResult.insertId]
+          'INSERT INTO artist_portfolio (artist_id, portfolio_id) VALUES ($1, $2)',
+          [artistId, portfolioResult[0].id]
         );
       }
 
       // 7. Update demos
-      await conn.query('DELETE FROM artist_demo WHERE artist_id = ?', [artistId]);
+      await conn.query('DELETE FROM artist_demo WHERE artist_id = $1', [artistId]);
       for (const item of demo) {
         // Insert into demo table
-        const [demoResult] = await conn.query(
-          'INSERT INTO demo (name, file) VALUES (?, ?)',
+        const { rows: demoResult } = await conn.query(
+          'INSERT INTO demo (name, file) VALUES ($1, $2) RETURNING id',
           [item.name, item.file]
         );
         
         // Link to artist
         await conn.query(
-          'INSERT INTO artist_demo (artist_id, demo_id) VALUES (?, ?)',
-          [artistId, demoResult.insertId]
+          'INSERT INTO artist_demo (artist_id, demo_id) VALUES ($1, $2)',
+          [artistId, demoResult[0].id]
         );
       }
 
-      await conn.commit();
+      await conn.query('COMMIT');
       return { success: true, message: "Profile updated successfully" };
     } catch (error) {
-      await conn.rollback();
+      await conn.query('ROLLBACK');
       console.error("Error updating profile:", error);
       throw new Error(`Failed to update profile: ${error.message}`);
     } finally {
@@ -1006,13 +1002,14 @@ GROUP BY s.id
       
       const sql = `
         INSERT INTO booking (user_id, studio_id, booking_date, booking_time, nbr_guests, service_id, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        RETURNING id
       `;
       
       const values = [user_id, studio_id, booking_date, booking_time, nbr_guests, service_id, status];
-      const [result] = await pool.query(sql, values);
+      const { rows } = await pool.query(sql, values);
       
-      return { id: result.insertId, ...bookingData };
+      return { id: rows[0].id, ...bookingData };
     } catch (error) {
       throw new Error(`Error creating booking: ${error.message}`);
     }
@@ -1025,16 +1022,17 @@ GROUP BY s.id
       
       const sql = `
         INSERT INTO review (artist_id, studio_id, rating, comment, review_date)
-        VALUES (?, ?, ?, ?, ?)
+        VALUES ($1, $2, $3, $4, $5)
+        RETURNING id
       `;
       
       const values = [artist_id, studio_id, rating, comment, review_date];
-      const [result] = await pool.query(sql, values);
+      const { rows } = await pool.query(sql, values);
 
       await GamificationModel.updateGamification(Number(artist_id), "artist");
       await GamificationModel.updateGamification(Number(studio_id), "studio");
       
-      return { id: result.insertId, ...Data };
+      return { id: rows[0].id, ...Data };
     } catch (error) {
       throw new Error(`Error creating review: ${error.message}`);
     }
