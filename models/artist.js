@@ -5,6 +5,18 @@ import GamificationModel from './gamification.js';
 
 
 const ArtistModel = {
+  /** ===================== CONNECTION TEST ===================== **/
+  
+  // Test database connection
+  async testConnection() {
+    try {
+      const { rows } = await pool.query('SELECT NOW() as current_time');
+      return { success: true, time: rows[0].current_time };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  },
+
   /** ===================== FETCH METHODS ===================== **/
 
   // Fetch all studios

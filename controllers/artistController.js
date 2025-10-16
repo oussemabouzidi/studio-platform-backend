@@ -3,13 +3,23 @@ import ArtistModel from '../models/artist.js';
 export default {
   fetchAllStudios: async (req, res) => {
     try {
+      console.log("fetchAllStudios called");
+      // Test database connection first
+      const testQuery = await ArtistModel.testConnection();
+      console.log("Database connection test:", testQuery);
+      
       // No artistId param needed here (in your model, getAllStudios has no args)
       const studios = await ArtistModel.getAllStudios();
-      console.log("studio method is beign used")
-      console.log(studios);
+      console.log("studio method is being used");
+      console.log("Studios found:", studios.length);
       res.json(studios);
     } catch (error) {
-      res.status(500).json({ error: error.message });
+      console.error("Error in fetchAllStudios:", error);
+      res.status(500).json({ 
+        error: error.message,
+        details: "Database connection or query failed",
+        timestamp: new Date().toISOString()
+      });
     }
   },
 

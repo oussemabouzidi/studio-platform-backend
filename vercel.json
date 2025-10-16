@@ -6,6 +6,16 @@
       "use": "@vercel/node"
     }
   ],
+  "functions": {
+    "index.js": {
+      "runtime": "nodejs20.x",
+      "regions": ["iad1", "sfo1", "dub1"]
+    }
+  },
+  "env": {
+    "NODE_OPTIONS": "--dns-result-order=ipv4first",
+    "PGSSLMODE": "require"
+  },
   "routes": [
     {
       "src": "/(.*)",

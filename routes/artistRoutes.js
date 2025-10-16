@@ -1,6 +1,8 @@
 import express from "express";
 const router = express.Router();
 import artistController from '../controllers/artistController.js';
+import dns from 'node:dns/promises';
+import pool from '../database.js';
 
 // Studios related
 router.get('/studios', artistController.fetchAllStudios);              // 1
@@ -52,3 +54,51 @@ router.get('/:artistId/gamification', artistController.fetchGamification);
 
 
 export default router;
+
+// Temporary diagnostics route to debug DNS/DB (remove after fixing)
+router.get('/__diag', async (req, res) => {
+  const diagnostics = { startedAt: new Date().toISOString() };
+  try {
+    diagnostics.env = {
+      hasDatabaseUrl: !!process.env.DATABASE_URL,
+      nodeOptions: process.env.NODE_OPTIONS || null,
+      pgSslMode: process.env.PGSSLMODE || null
+    };
+
+    // DNS resolve
+    const host = 'db.cxdbwekciccqkleqehuw.supabase.co';
+    try {
+      const ipv4 = await dns.resolve4(host);
+      diagnostics.dnsIPv4 = ipv4;
+    } catch (e) {
+      diagnostics.dnsIPv4Error = e.message;
+    }
+    try {
+      const ipv6 = await dns.resolve6(host);
+      diagnostics.dnsIPv6 = ipv6;
+    } catch (e) {
+      diagnostics.dnsIPv6Error = e.message;
+    }
+
+    // DB connect
+    try {
+      const client = await pool.connect();
+      diagnostics.dbConnect = 'ok';
+      try {
+        const r = await client.query('SELECT NOW() as now');
+        diagnostics.dbQuery = { ok: true, now: r.rows?.[0]?.now };
+      } catch (qe) {
+        diagnostics.dbQuery = { ok: false, error: qe.message };
+      } finally {
+        client.release();
+      }
+    } catch (ce) {
+      diagnostics.dbConnect = `error: ${ce.message}`;
+    }
+
+    diagnostics.endedAt = new Date().toISOString();
+    res.json(diagnostics);
+  } catch (err) {
+    res.status(500).json({ error: err.message, diagnostics });
+  }
+});
