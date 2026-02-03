@@ -3,7 +3,7 @@ import GamificationModel from './gamification.js';
 
 // Create a connection pool (configure with your DB credentials)
 
-export default {
+const StudioModel = {
   // ---- FETCH ----
   fetchBookings: async (studioId) => {
     const [rows] = await pool.query(
@@ -496,12 +496,22 @@ GROUP BY t.studio_id;
     return rows;
   },
 
+  // Back-compat alias used by studioController
+  fetchPaymentMethod: async (userId) => {
+    return StudioModel.fetchPayoutMethod(userId);
+  },
+
   fetchPayoutHistory: async (studioId) => {
     const [rows] = await pool.query(
       `SELECT * FROM transactions WHERE studio_id = ? AND status = 'completed'`,
       [studioId]
     );
     return rows;
+  },
+
+  // Back-compat alias used by studioController
+  fetchPaymentHistory: async (studioId) => {
+    return StudioModel.fetchPayoutHistory(studioId);
   },
 
   fetchConnectedAccount: async (userId) => {
@@ -545,6 +555,20 @@ GROUP BY t.studio_id;
        FROM studio_settings WHERE user_id = ? LIMIT 1`,
       [userId]
     );
+    return rows[0] || null;
+  },
+
+  // Back-compat alias used by studioController
+  fetchLanguageSettings: async (userId) => {
+    const [rows] = await pool.query(
+      `SELECT ss.language_id, l.name AS language, ss.timezone, ss.currency, ss.time_format
+       FROM studio_settings ss
+       LEFT JOIN language l ON ss.language_id = l.id
+       WHERE ss.user_id = ?
+       LIMIT 1`,
+      [userId]
+    );
+
     return rows[0] || null;
   },
 
@@ -882,6 +906,33 @@ GROUP BY t.studio_id;
     return result;
   },
 
+  // Back-compat wrapper used by studioController (route is keyed by userId)
+  updatePaymentMethod: async (userId, data) => {
+    const { id, ...updateData } = data || {};
+
+    let payoutMethodId = id;
+
+    if (!payoutMethodId) {
+      const [rows] = await pool.query(
+        `SELECT pm.id
+         FROM payout_method_user pmu
+         JOIN payout_method pm ON pmu.payout_method_id = pm.id
+         WHERE pmu.user_id = ?
+         ORDER BY pmu.id
+         LIMIT 1`,
+        [userId]
+      );
+
+      payoutMethodId = rows[0]?.id;
+    }
+
+    if (!payoutMethodId) {
+      throw new Error("No payout method found for this user");
+    }
+
+    return StudioModel.updatePayoutMethod(payoutMethodId, updateData);
+  },
+
   updatePayoutHistory: async (transactionId, data) => {
     const fields = [];
     const values = [];
@@ -898,35 +949,110 @@ GROUP BY t.studio_id;
     return result;
   },
 
-  updateConnectedAccount: async (accountId, data) => {
+  // Back-compat wrapper used by studioController (route is keyed by studioId)
+  updatePaymentHistory: async (studioId, data) => {
+    const { id, ...updateData } = data || {};
+    if (!id) {
+      throw new Error("Transaction id is required");
+    }
+
+    const [checkRows] = await pool.query(
+      `SELECT id FROM transactions WHERE id = ? AND studio_id = ? LIMIT 1`,
+      [id, studioId]
+    );
+
+    if (checkRows.length === 0) {
+      throw new Error("Transaction not found for this studio");
+    }
+
+    return StudioModel.updatePayoutHistory(id, updateData);
+  },
+
+  // Back-compat wrapper used by studioController (route is keyed by userId)
+  updateConnectedAccount: async (userId, data) => {
+    const { id, ...updateData } = data || {};
+
+    let accountId = id;
+    if (!accountId) {
+      const [rows] = await pool.query(
+        `SELECT a.id
+         FROM connected_account_user cau
+         JOIN account a ON cau.account_id = a.id
+         WHERE cau.user_id = ?
+         ORDER BY a.id
+         LIMIT 1`,
+        [userId]
+      );
+      accountId = rows[0]?.id;
+    } else {
+      const [rows] = await pool.query(
+        `SELECT 1
+         FROM connected_account_user
+         WHERE user_id = ? AND account_id = ?
+         LIMIT 1`,
+        [userId, accountId]
+      );
+      if (rows.length === 0) {
+        throw new Error("Connected account not found for this user");
+      }
+    }
+
+    if (!accountId) {
+      throw new Error("No connected account found for this user");
+    }
+
     const fields = [];
     const values = [];
 
-    for (const [key, value] of Object.entries(data)) {
+    for (const [key, value] of Object.entries(updateData)) {
       fields.push(`${key} = ?`);
       values.push(value);
     }
+
+    if (fields.length === 0) {
+      throw new Error("No fields to update");
+    }
+
     values.push(accountId);
-
-    const sql = `UPDATE account SET ${fields.join(', ')} WHERE id = ?`;
+    const sql = `UPDATE account SET ${fields.join(", ")} WHERE id = ?`;
     const [result] = await pool.query(sql, values);
-
     return result;
   },
 
-  updateNotification: async (id, data) => {
+  // Back-compat wrapper used by studioController (route is keyed by userId)
+  updateNotification: async (userId, data) => {
+    const { id, ...updateData } = data || {};
+
     const fields = [];
     const values = [];
 
-    for (const [key, value] of Object.entries(data)) {
+    for (const [key, value] of Object.entries(updateData)) {
       fields.push(`${key} = ?`);
       values.push(value);
     }
-    values.push(id);
 
-    const sql = `UPDATE notification SET ${fields.join(', ')} WHERE id = ?`;
+    if (fields.length === 0) {
+      throw new Error("No fields to update");
+    }
+
+    if (id) {
+      const [rows] = await pool.query(
+        `SELECT 1 FROM notification WHERE id = ? AND user_id = ? LIMIT 1`,
+        [id, userId]
+      );
+      if (rows.length === 0) {
+        throw new Error("Notification not found for this user");
+      }
+
+      values.push(id);
+      const sql = `UPDATE notification SET ${fields.join(", ")} WHERE id = ?`;
+      const [result] = await pool.query(sql, values);
+      return result;
+    }
+
+    values.push(userId);
+    const sql = `UPDATE notification SET ${fields.join(", ")} WHERE user_id = ?`;
     const [result] = await pool.query(sql, values);
-
     return result;
   },
 
@@ -960,6 +1086,25 @@ GROUP BY t.studio_id;
     const [result] = await pool.query(sql, values);
 
     return result;
+  },
+
+  // Back-compat alias used by studioController
+  updateLanguageSettings: async (userId, data) => {
+    const updateData = { ...data };
+
+    if (updateData.language !== undefined && updateData.language_id === undefined) {
+      const [rows] = await pool.query(
+        `SELECT id FROM language WHERE name = ? LIMIT 1`,
+        [updateData.language]
+      );
+      if (!rows[0]?.id) {
+        throw new Error("Unknown language");
+      }
+      updateData.language_id = rows[0].id;
+      delete updateData.language;
+    }
+
+    return StudioModel.updateLanguageTimezoneCurrencyFormat(userId, updateData);
   },
 
   // ---- DELETE ----
@@ -1021,3 +1166,5 @@ GROUP BY t.studio_id;
   },
 
 };
+
+export default StudioModel;

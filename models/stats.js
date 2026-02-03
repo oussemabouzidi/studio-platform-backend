@@ -111,71 +111,63 @@ export const getRevenueStats = async () => {
 export const getBookingStats = async () => {
   // Bookings by price range
   const [priceRanges] = await pool.query(`
-    SELECT 
-      CASE 
-        WHEN t.amount BETWEEN 0 AND 50 THEN '$0-50'
-        WHEN t.amount BETWEEN 51 AND 100 THEN '$50-100'
-        WHEN t.amount BETWEEN 101 AND 200 THEN '$100-200'
-        WHEN t.amount BETWEEN 201 AND 500 THEN '$200-500'
-        ELSE '$500+'
-      END as price_range,
+    SELECT
+      x.price_range,
       COUNT(*) as count
-    FROM booking b
-    JOIN transactions t ON b.id = t.booking_id
-    WHERE t.status = 'completed'
-    GROUP BY 
-      CASE 
-        WHEN t.amount BETWEEN 0 AND 50 THEN '$0-50'
-        WHEN t.amount BETWEEN 51 AND 100 THEN '$50-100'
-        WHEN t.amount BETWEEN 101 AND 200 THEN '$100-200'
-        WHEN t.amount BETWEEN 201 AND 500 THEN '$200-500'
-        ELSE '$500+'
-      END
-    ORDER BY 
-      CASE 
-        WHEN t.amount BETWEEN 0 AND 50 THEN 1
-        WHEN t.amount BETWEEN 51 AND 100 THEN 2
-        WHEN t.amount BETWEEN 101 AND 200 THEN 3
-        WHEN t.amount BETWEEN 201 AND 500 THEN 4
-        ELSE 5
-      END
+    FROM (
+      SELECT
+        CASE
+          WHEN t.amount BETWEEN 0 AND 50 THEN '$0-50'
+          WHEN t.amount BETWEEN 51 AND 100 THEN '$50-100'
+          WHEN t.amount BETWEEN 101 AND 200 THEN '$100-200'
+          WHEN t.amount BETWEEN 201 AND 500 THEN '$200-500'
+          ELSE '$500+'
+        END as price_range,
+        CASE
+          WHEN t.amount BETWEEN 0 AND 50 THEN 1
+          WHEN t.amount BETWEEN 51 AND 100 THEN 2
+          WHEN t.amount BETWEEN 101 AND 200 THEN 3
+          WHEN t.amount BETWEEN 201 AND 500 THEN 4
+          ELSE 5
+        END as sort_order
+      FROM booking b
+      JOIN transactions t ON b.id = t.booking_id
+      WHERE t.status = 'completed'
+    ) x
+    GROUP BY x.price_range, x.sort_order
+    ORDER BY x.sort_order
   `);
 
   // Bookings by time slots
   const [timeSlots] = await pool.query(`
-    SELECT 
-      CASE 
-        WHEN TIME(booking_time) BETWEEN '09:00:00' AND '10:59:59' THEN '9-11 AM'
-        WHEN TIME(booking_time) BETWEEN '11:00:00' AND '12:59:59' THEN '11-1 PM'
-        WHEN TIME(booking_time) BETWEEN '13:00:00' AND '14:59:59' THEN '1-3 PM'
-        WHEN TIME(booking_time) BETWEEN '15:00:00' AND '16:59:59' THEN '3-5 PM'
-        WHEN TIME(booking_time) BETWEEN '17:00:00' AND '18:59:59' THEN '5-7 PM'
-        WHEN TIME(booking_time) BETWEEN '19:00:00' AND '20:59:59' THEN '7-9 PM'
-        ELSE 'Other'
-      END as time_slot,
+    SELECT
+      x.time_slot,
       COUNT(*) as bookings
-    FROM booking 
-    WHERE status IN ('Confirmed', 'Completed')
-    GROUP BY 
-      CASE 
-        WHEN TIME(booking_time) BETWEEN '09:00:00' AND '10:59:59' THEN '9-11 AM'
-        WHEN TIME(booking_time) BETWEEN '11:00:00' AND '12:59:59' THEN '11-1 PM'
-        WHEN TIME(booking_time) BETWEEN '13:00:00' AND '14:59:59' THEN '1-3 PM'
-        WHEN TIME(booking_time) BETWEEN '15:00:00' AND '16:59:59' THEN '3-5 PM'
-        WHEN TIME(booking_time) BETWEEN '17:00:00' AND '18:59:59' THEN '5-7 PM'
-        WHEN TIME(booking_time) BETWEEN '19:00:00' AND '20:59:59' THEN '7-9 PM'
-        ELSE 'Other'
-      END
-    ORDER BY 
-      CASE 
-        WHEN TIME(booking_time) BETWEEN '09:00:00' AND '10:59:59' THEN 1
-        WHEN TIME(booking_time) BETWEEN '11:00:00' AND '12:59:59' THEN 2
-        WHEN TIME(booking_time) BETWEEN '13:00:00' AND '14:59:59' THEN 3
-        WHEN TIME(booking_time) BETWEEN '15:00:00' AND '16:59:59' THEN 4
-        WHEN TIME(booking_time) BETWEEN '17:00:00' AND '18:59:59' THEN 5
-        WHEN TIME(booking_time) BETWEEN '19:00:00' AND '20:59:59' THEN 6
-        ELSE 7
-      END
+    FROM (
+      SELECT
+        CASE
+          WHEN TIME(booking_time) BETWEEN '09:00:00' AND '10:59:59' THEN '9-11 AM'
+          WHEN TIME(booking_time) BETWEEN '11:00:00' AND '12:59:59' THEN '11-1 PM'
+          WHEN TIME(booking_time) BETWEEN '13:00:00' AND '14:59:59' THEN '1-3 PM'
+          WHEN TIME(booking_time) BETWEEN '15:00:00' AND '16:59:59' THEN '3-5 PM'
+          WHEN TIME(booking_time) BETWEEN '17:00:00' AND '18:59:59' THEN '5-7 PM'
+          WHEN TIME(booking_time) BETWEEN '19:00:00' AND '20:59:59' THEN '7-9 PM'
+          ELSE 'Other'
+        END as time_slot,
+        CASE
+          WHEN TIME(booking_time) BETWEEN '09:00:00' AND '10:59:59' THEN 1
+          WHEN TIME(booking_time) BETWEEN '11:00:00' AND '12:59:59' THEN 2
+          WHEN TIME(booking_time) BETWEEN '13:00:00' AND '14:59:59' THEN 3
+          WHEN TIME(booking_time) BETWEEN '15:00:00' AND '16:59:59' THEN 4
+          WHEN TIME(booking_time) BETWEEN '17:00:00' AND '18:59:59' THEN 5
+          WHEN TIME(booking_time) BETWEEN '19:00:00' AND '20:59:59' THEN 6
+          ELSE 7
+        END as sort_order
+      FROM booking
+      WHERE status IN ('Confirmed', 'Completed')
+    ) x
+    GROUP BY x.time_slot, x.sort_order
+    ORDER BY x.sort_order
   `);
 
   // Total bookings count
@@ -219,7 +211,7 @@ export const getEnhancedGamificationStats = async () => {
       user_type,
       AVG(points) as avg_points,
       MAX(points) as max_points,
-      MAX(level) as max_level,
+      MAX(normal_level) as max_level,
       COUNT(*) as total_users,
       SUM(points) as total_points
     FROM gamification
@@ -231,15 +223,15 @@ export const getEnhancedGamificationStats = async () => {
       g.user_id,
       g.user_type,
       g.points,
-      g.level,
+      g.normal_level as level,
       CASE 
         WHEN g.user_type = 'artist' THEN a.full_name
         WHEN g.user_type = 'studio' THEN s.name
         ELSE 'Admin User'
       END as name
     FROM gamification g
-    LEFT JOIN artist a ON g.user_id = a.user_id AND g.user_type = 'artist'
-    LEFT JOIN studio s ON g.user_id = s.user_id AND g.user_type = 'studio'
+    LEFT JOIN artist a ON g.user_id = a.id AND g.user_type = 'artist'
+    LEFT JOIN studio s ON g.user_id = s.id AND g.user_type = 'studio'
     ORDER BY g.points DESC
     LIMIT 10
   `);

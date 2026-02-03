@@ -347,8 +347,13 @@ const studioController = {
   updateProfileVisibility: async (req, res) => {
     try {
       const userId = Number(req.params.userId);
-      const data = req.body;
-      const updated = await StudioModel.updateProfileVisibility(userId, data);
+      const visibility = req.body?.visibility ?? req.body;
+
+      if (visibility === undefined) {
+        return res.status(400).json({ error: "visibility is required" });
+      }
+
+      const updated = await StudioModel.updateProfileVisibility(userId, visibility);
       res.json(updated);
     } catch (error) {
       res.status(500).json({ error: error.message });
@@ -368,8 +373,13 @@ const studioController = {
   updateContentVisibility: async (req, res) => {
     try {
       const userId = Number(req.params.userId);
-      const data = req.body;
-      const updated = await StudioModel.updateContentVisibility(userId, data);
+      const status = req.body?.status ?? req.body?.show_reviews_public ?? req.body;
+
+      if (status === undefined) {
+        return res.status(400).json({ error: "status is required" });
+      }
+
+      const updated = await StudioModel.updateContentVisibility(userId, status);
       res.json(updated);
     } catch (error) {
       res.status(500).json({ error: error.message });
