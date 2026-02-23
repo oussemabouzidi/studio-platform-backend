@@ -6,9 +6,9 @@ import crypto from "crypto";
 
 // SQL queries
 const selectByProviderSql =
-  "SELECT * FROM user_profile WHERE provider = ? AND providerId = ? LIMIT 1";
+  "SELECT * FROM user_profile WHERE provider = ? AND providerId = ? ORDER BY id DESC LIMIT 1";
 const selectByEmailSql =
-  "SELECT * FROM user_profile WHERE email = ? LIMIT 1";
+  "SELECT * FROM user_profile WHERE email = ? ORDER BY id DESC LIMIT 1";
 const linkProviderSql =
   "UPDATE user_profile SET provider = ?, providerId = ? WHERE id = ?";
 const insertUserSql =
@@ -209,7 +209,7 @@ const authController = {
 
         // 1. Check if user already exists
         const [userRows] = await pool.query(
-            "SELECT id FROM user_profile WHERE email = ?",
+            "SELECT id FROM user_profile WHERE email = ? ORDER BY id DESC LIMIT 1",
             [email]
         );
 
@@ -272,6 +272,7 @@ const authController = {
         // 1) lookup by provider+providerId
         const [byProv] = await pool.query(selectByProviderSql, [provider, providerId]);
         let user = byProv[0];
+        let resolvedBy = user ? "provider" : null;
 
         // 2) if not found, try by email and link
         if (!user && email) {
@@ -281,6 +282,7 @@ const authController = {
             await pool.query(linkProviderSql, [provider, providerId, candidate.id]);
             const [fresh] = await pool.query(selectByIdSql, [candidate.id]);
             user = fresh[0];
+            resolvedBy = "email_link";
             }
         }
 
@@ -302,6 +304,7 @@ const authController = {
             const newId = insert.insertId;
             const [fresh] = await pool.query(selectByIdSql, [newId]);
             user = fresh[0];
+            resolvedBy = "created";
         }
 
         // Determine role and onboarding
@@ -326,7 +329,8 @@ const authController = {
             role: normalizedRole,
             artistId,
             studioId,
-            needsOnboarding
+            needsOnboarding,
+            resolvedBy
         });
         } catch (err) {
         console.error("oauthConnect error", err);

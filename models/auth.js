@@ -5,7 +5,7 @@ const AuthModel = {
     try {
       // 1. Check if user exists
       const [userRows] = await pool.query(
-        "SELECT id FROM user_profile WHERE email = ? AND password = ?",
+        "SELECT id FROM user_profile WHERE email = ? AND password = ? ORDER BY id DESC LIMIT 1",
         [email, password]
       );
 
