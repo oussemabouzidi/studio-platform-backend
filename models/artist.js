@@ -1,6 +1,7 @@
 // models/artist.js
 import pool from '../database.js'
 import GamificationModel from './gamification.js';
+import { attachBookingService } from "./bookingService.js";
 
 
 
@@ -59,7 +60,7 @@ GROUP BY s.id
 
   // Fetch all bookings for this artist
   async getBookingsByArtist(artistId) {
-    const sql = `
+    const baseSelect = `
       SELECT 
         b.id AS booking_id,
         b.booking_date,
@@ -80,15 +81,78 @@ GROUP BY s.id
         s.cancellation_policy,
         srv.name AS service_name,
         srv.price,
-        srv.duration
+        srv.duration,
+        bs.status
       FROM booking b
       JOIN studio s ON b.studio_id = s.id
-      LEFT JOIN service srv ON b.service_id = srv.id
-      WHERE b.user_id = ?
     `;
-    
-    const [rows] = await pool.query(sql, [artistId]);
-    return rows;
+
+    const sqlWithBookingService = `
+      ${baseSelect}
+      LEFT JOIN booking_service bs ON b.id = bs.booking_id
+      LEFT JOIN service srv ON bs.service_id = srv.id
+      WHERE b.user_id = ?
+      ORDER BY b.booking_date DESC, b.booking_time DESC
+    `;
+
+    const sqlLegacy = `
+      ${baseSelect}
+      LEFT JOIN service srv ON b.service_id = srv.id
+      LEFT JOIN (
+        SELECT id AS booking_id, NULL AS status
+        FROM booking
+      ) bs ON b.id = bs.booking_id
+      WHERE b.user_id = ?
+      ORDER BY b.booking_date DESC, b.booking_time DESC
+    `;
+
+    const sqlMinimal = `
+      SELECT 
+        b.id AS booking_id,
+        b.booking_date,
+        b.booking_time,
+        b.nbr_guests,
+        b.studio_id,
+        s.name AS studio_name,
+        s.location,
+        s.description,
+        s.avatar_link,
+        s.email,
+        s.phone,
+        s.website,
+        s.instagram,
+        s.soundCloud,
+        s.youtube,
+        s.studio_rules,
+        s.cancellation_policy
+      FROM booking b
+      JOIN studio s ON b.studio_id = s.id
+      WHERE b.user_id = ?
+      ORDER BY b.booking_date DESC, b.booking_time DESC
+    `;
+
+    try {
+      const [rows] = await pool.query(sqlWithBookingService, [artistId]);
+      return rows;
+    } catch (error) {
+      const msg = String(error?.message || "");
+      if (msg.includes("booking_service")) {
+        try {
+          const [rows] = await pool.query(sqlLegacy, [artistId]);
+          return rows;
+        } catch (e2) {
+          const [rows] = await pool.query(sqlMinimal, [artistId]);
+          return rows;
+        }
+      }
+
+      if (msg.includes("b.service_id")) {
+        const [rows] = await pool.query(sqlMinimal, [artistId]);
+        return rows;
+      }
+
+      throw error;
+    }
   },  
 
   // Fetch all related reviews
@@ -313,6 +377,32 @@ GROUP BY s.id
     return rows[0] || null;
   },
 
+  async getMiniProfile(artistId) {
+    const sql = `
+      SELECT
+        a.full_name AS fullName,
+        a.artist_name AS artistName,
+        a.avatar_link AS avatarImage,
+        a.location AS location
+      FROM artist a
+      WHERE a.id = ?
+      LIMIT 1
+    `;
+
+    const [rows] = await pool.query(sql, [artistId]);
+    if (!rows.length) return null;
+
+    const r = rows[0];
+    return {
+      fullName: r.fullName,
+      artistName: r.artistName,
+      avatarImage: r.avatarImage,
+      location: r.location,
+      genres: [],
+      instruments: [],
+    };
+  },
+
   async getProfile(artistId) {
   const sql = `
     SELECT 
@@ -374,7 +464,7 @@ GROUP BY s.id
     ) c ON a.id = c.artist_id
 
     LEFT JOIN (
-      SELECT ap.artist_id, JSON_ARRAYAGG(JSON_OBJECT('url', p.url, 'title', p.title, 'type', p.type)) AS portfolio
+      SELECT ap.artist_id, JSON_ARRAYAGG(JSON_OBJECT('id', p.id, 'url', p.url, 'title', p.title, 'type', p.type)) AS portfolio
       FROM artist_portfolio ap
       JOIN portfolio p ON ap.portfolio_id = p.id
       GROUP BY ap.artist_id
@@ -418,6 +508,25 @@ GROUP BY s.id
     demo: Array.isArray(r.demos) ? r.demos : r.demos ? JSON.parse(r.demos) : [],
     portfolio: Array.isArray(r.portfolio) ? r.portfolio : r.portfolio ? JSON.parse(r.portfolio) : []
   };
+  },
+
+  async updatePortfolioItem({ artistId, portfolioId, url, type, title }) {
+    try {
+      const sql = `
+        UPDATE portfolio p
+        JOIN artist_portfolio ap ON ap.portfolio_id = p.id
+        SET p.url = ?, p.type = ?, p.title = ?
+        WHERE p.id = ? AND ap.artist_id = ?
+      `;
+
+      const values = [url, type, title, portfolioId, artistId];
+      const [result] = await pool.query(sql, values);
+
+      if (!result.affectedRows) return null;
+      return { id: portfolioId, url, type, title };
+    } catch (error) {
+      throw new Error(`Error updating portfolio item: ${error.message}`);
+    }
   },
 
 
@@ -856,8 +965,95 @@ GROUP BY s.id
       yearsOfExperience,
       availability,
       demo,
-      portfolio
-    } = profileData;
+      portfolio,
+    } = profileData ?? {};
+
+    const normalizeString = (value) => {
+      if (value === undefined) return undefined;
+      if (value === null) return null;
+      if (typeof value === "string") return value.trim();
+      if (typeof value === "number" || typeof value === "boolean") return String(value);
+      return null;
+    };
+
+    const normalizeStringArray = (value) => {
+      if (value === undefined) return undefined;
+      if (value === null) return [];
+      if (Array.isArray(value)) return value.map((v) => normalizeString(v)).filter(Boolean);
+      if (typeof value === "string") {
+        return value
+          .split(",")
+          .map((v) => v.trim())
+          .filter(Boolean);
+      }
+      return [];
+    };
+
+    const ensureObject = (value) =>
+      value && typeof value === "object" && !Array.isArray(value) ? value : {};
+
+    const normalizedContact = ensureObject(contact);
+    const normalizedGenres = normalizeStringArray(genres);
+    const normalizedInstruments = normalizeStringArray(instruments);
+    const normalizedLanguages = normalizeStringArray(languages);
+    const normalizedCollaborators = normalizeStringArray(collaborators);
+
+    const normalizedPortfolio =
+      portfolio === undefined
+        ? undefined
+        : Array.isArray(portfolio)
+          ? portfolio
+              .map((item) => (item && typeof item === "object" ? item : null))
+              .filter(Boolean)
+              .map((item) => ({
+                id: Number.isFinite(Number(item.id ?? item.portfolioId))
+                  ? Number(item.id ?? item.portfolioId)
+                  : null,
+                url: normalizeString(item.url),
+                type: normalizeString(item.type),
+                title: normalizeString(item.title),
+              }))
+              .filter((item) => item.url && item.type && item.title)
+          : [];
+
+    const normalizedDemo =
+      demo === undefined
+        ? undefined
+        : Array.isArray(demo)
+          ? demo
+              .map((item) => (item && typeof item === "object" ? item : null))
+              .filter(Boolean)
+              .map((item) => ({
+                name: normalizeString(item.name ?? item.title) ?? "Demo track",
+                file: normalizeString(item.file),
+              }))
+              .filter((item) => item.file)
+          : [];
+
+    // Basic validation (fail fast before touching the DB: prevents partial updates on non-transactional tables).
+    const email = normalizeString(normalizedContact.email);
+    const phone = normalizeString(normalizedContact.phone);
+    const instagram = normalizeString(normalizedContact.instagram);
+    const soundcloud = normalizeString(normalizedContact.soundcloud ?? normalizedContact.soundCloud);
+    const youtube = normalizeString(normalizedContact.youtube);
+
+    const tooLong = (label, value, max) => {
+      if (value === undefined || value === null) return;
+      if (String(value).length > max) {
+        const err = new Error(`${label} is too long (max ${max} characters).`);
+        err.statusCode = 400;
+        throw err;
+      }
+    };
+
+    tooLong("fullName", normalizeString(fullName), 255);
+    tooLong("artistName", normalizeString(artistName), 255);
+    tooLong("location", normalizeString(location), 255);
+    tooLong("email", email, 255);
+    tooLong("phone", phone, 255);
+    tooLong("instagram", instagram, 255);
+    tooLong("soundcloud", soundcloud, 255);
+    tooLong("youtube", youtube, 255);
 
     const conn = await pool.getConnection();
     try {
@@ -866,123 +1062,209 @@ GROUP BY s.id
       // 1. Update main artist table
       await conn.query(
         `UPDATE artist 
-        SET full_name = ?, artist_name = ?, avatar_link = ?, bio = ?, location = ?,
-            email = ?, phone = ?, instagram = ?, soundCloud = ?, youtube = ?,
-            experience_level = ?, years_experience = ?, availabilitie = ?
+        SET full_name = COALESCE(?, full_name), 
+            artist_name = COALESCE(?, artist_name), 
+            avatar_link = COALESCE(?, avatar_link), 
+            bio = COALESCE(?, bio), 
+            location = COALESCE(?, location),
+            email = COALESCE(?, email), 
+            phone = COALESCE(?, phone), 
+            instagram = COALESCE(?, instagram), 
+            soundCloud = COALESCE(?, soundCloud), 
+            youtube = COALESCE(?, youtube),
+            experience_level = COALESCE(?, experience_level), 
+            years_experience = COALESCE(?, years_experience), 
+            availabilitie = COALESCE(?, availabilitie)
         WHERE id = ?`,
         [
-          fullName,
-          artistName,
-          avatarImage,
-          bio,
-          location,
-          contact.email,
-          contact.phone,
-          contact.instagram,
-          contact.soundcloud,
-          contact.youtube,
-          experienceLevel,
-          yearsOfExperience,
-          availability,
-          artistId
+          normalizeString(fullName) ?? null,
+          normalizeString(artistName) ?? null,
+          normalizeString(avatarImage) ?? null,
+          normalizeString(bio) ?? null,
+          normalizeString(location) ?? null,
+          email ?? null,
+          phone ?? null,
+          instagram ?? null,
+          soundcloud ?? null,
+          youtube ?? null,
+          normalizeString(experienceLevel) ?? null,
+          yearsOfExperience === undefined ? null : yearsOfExperience,
+          normalizeString(availability) ?? null,
+          artistId,
         ]
       );
 
       // 2. Update genres (delete existing and insert new)
-      await conn.query('DELETE FROM artist_genre WHERE artist_id = ?', [artistId]);
-      for (const genre of genres) {
-        // Check if genre exists, if not create it
-        let [genreRows] = await conn.query('SELECT id FROM genre WHERE name = ?', [genre]);
-        let genreId;
-        
-        if (genreRows.length === 0) {
-          const [insertResult] = await conn.query('INSERT INTO genre (name) VALUES (?)', [genre]);
-          genreId = insertResult.insertId;
-        } else {
-          genreId = genreRows[0].id;
+      if (normalizedGenres !== undefined) {
+        await conn.query("DELETE FROM artist_genre WHERE artist_id = ?", [artistId]);
+        for (const genre of normalizedGenres) {
+          // Check if genre exists, if not create it
+          const [genreRows] = await conn.query("SELECT id FROM genre WHERE name = ?", [genre]);
+          let genreId;
+
+          if (genreRows.length === 0) {
+            const [insertResult] = await conn.query("INSERT INTO genre (name) VALUES (?)", [
+              genre,
+            ]);
+            genreId = insertResult.insertId;
+          } else {
+            genreId = genreRows[0].id;
+          }
+
+          await conn.query("INSERT INTO artist_genre (artist_id, genre_id) VALUES (?, ?)", [
+            artistId,
+            genreId,
+          ]);
         }
-        
-        await conn.query('INSERT INTO artist_genre (artist_id, genre_id) VALUES (?, ?)', [artistId, genreId]);
       }
 
       // 3. Update instruments (similar to genres)
-      await conn.query('DELETE FROM artist_instruments WHERE artist_id = ?', [artistId]);
-      for (const instrument of instruments) {
-        let [instrumentRows] = await conn.query('SELECT id FROM instruments WHERE name = ?', [instrument]);
-        let instrumentId;
-        
-        if (instrumentRows.length === 0) {
-          const [insertResult] = await conn.query('INSERT INTO instruments (name) VALUES (?)', [instrument]);
-          instrumentId = insertResult.insertId;
-        } else {
-          instrumentId = instrumentRows[0].id;
+      if (normalizedInstruments !== undefined) {
+        await conn.query("DELETE FROM artist_instruments WHERE artist_id = ?", [artistId]);
+        for (const instrument of normalizedInstruments) {
+          const [instrumentRows] = await conn.query("SELECT id FROM instruments WHERE name = ?", [
+            instrument,
+          ]);
+          let instrumentId;
+
+          if (instrumentRows.length === 0) {
+            const [insertResult] = await conn.query("INSERT INTO instruments (name) VALUES (?)", [
+              instrument,
+            ]);
+            instrumentId = insertResult.insertId;
+          } else {
+            instrumentId = instrumentRows[0].id;
+          }
+
+          await conn.query(
+            "INSERT INTO artist_instruments (artist_id, instrument_id) VALUES (?, ?)",
+            [artistId, instrumentId]
+          );
         }
-        
-        await conn.query('INSERT INTO artist_instruments (artist_id, instrument_id) VALUES (?, ?)', [artistId, instrumentId]);
       }
 
       // 4. Update languages
-      await conn.query('DELETE FROM artist_language WHERE artist_id = ?', [artistId]);
-      for (const language of languages) {
-        let [languageRows] = await conn.query('SELECT id FROM language WHERE name = ?', [language]);
-        let languageId;
-        
-        if (languageRows.length === 0) {
-          const [insertResult] = await conn.query('INSERT INTO language (name) VALUES (?)', [language]);
-          languageId = insertResult.insertId;
-        } else {
-          languageId = languageRows[0].id;
+      if (normalizedLanguages !== undefined) {
+        await conn.query("DELETE FROM artist_language WHERE artist_id = ?", [artistId]);
+        for (const language of normalizedLanguages) {
+          const [languageRows] = await conn.query("SELECT id FROM language WHERE name = ?", [
+            language,
+          ]);
+          let languageId;
+
+          if (languageRows.length === 0) {
+            const [insertResult] = await conn.query("INSERT INTO language (name) VALUES (?)", [
+              language,
+            ]);
+            languageId = insertResult.insertId;
+          } else {
+            languageId = languageRows[0].id;
+          }
+
+          await conn.query("INSERT INTO artist_language (artist_id, language_id) VALUES (?, ?)", [
+            artistId,
+            languageId,
+          ]);
         }
-        
-        await conn.query('INSERT INTO artist_language (artist_id, language_id) VALUES (?, ?)', [artistId, languageId]);
       }
 
       // 5. Update collaborators
-      await conn.query('DELETE FROM artist_colaborators WHERE artist_id = ?', [artistId]);
-      for (const collaborator of collaborators) {
-        let [collabRows] = await conn.query('SELECT id FROM colaborators WHERE name = ?', [collaborator]);
-        let collabId;
-        
-        if (collabRows.length === 0) {
-          const [insertResult] = await conn.query('INSERT INTO colaborators (name) VALUES (?)', [collaborator]);
-          collabId = insertResult.insertId;
-        } else {
-          collabId = collabRows[0].id;
+      if (normalizedCollaborators !== undefined) {
+        await conn.query("DELETE FROM artist_colaborators WHERE artist_id = ?", [artistId]);
+        for (const collaborator of normalizedCollaborators) {
+          const [collabRows] = await conn.query("SELECT id FROM colaborators WHERE name = ?", [
+            collaborator,
+          ]);
+          let collabId;
+
+          if (collabRows.length === 0) {
+            const [insertResult] = await conn.query("INSERT INTO colaborators (name) VALUES (?)", [
+              collaborator,
+            ]);
+            collabId = insertResult.insertId;
+          } else {
+            collabId = collabRows[0].id;
+          }
+
+          await conn.query(
+            "INSERT INTO artist_colaborators (artist_id, colaborators_id) VALUES (?, ?)",
+            [artistId, collabId]
+          );
         }
-        
-        await conn.query('INSERT INTO artist_colaborators (artist_id, colaborators_id) VALUES (?, ?)', [artistId, collabId]);
       }
 
       // 6. Update portfolio
-      await conn.query('DELETE FROM artist_portfolio WHERE artist_id = ?', [artistId]);
-      for (const item of portfolio) {
-        // Insert into portfolio table
-        const [portfolioResult] = await conn.query(
-          'INSERT INTO portfolio (url, type, title) VALUES (?, ?, ?)',
-          [item.url, item.type, item.title]
+      if (normalizedPortfolio !== undefined) {
+        const [existingRows] = await conn.query(
+          "SELECT portfolio_id FROM artist_portfolio WHERE artist_id = ?",
+          [artistId],
         );
-        
-        // Link to artist
-        await conn.query(
-          'INSERT INTO artist_portfolio (artist_id, portfolio_id) VALUES (?, ?)',
-          [artistId, portfolioResult.insertId]
+
+        const existingIds = new Set(
+          (existingRows || [])
+            .map((r) => Number(r.portfolio_id))
+            .filter((id) => Number.isFinite(id)),
         );
+
+        const keptIds = new Set();
+
+        for (const item of normalizedPortfolio) {
+          const portfolioId = Number(item.id);
+          if (Number.isFinite(portfolioId) && existingIds.has(portfolioId)) {
+            await conn.query(
+              "UPDATE portfolio SET url = ?, type = ?, title = ? WHERE id = ?",
+              [item.url, item.type, item.title, portfolioId],
+            );
+            keptIds.add(portfolioId);
+            continue;
+          }
+
+          const [portfolioResult] = await conn.query(
+            "INSERT INTO portfolio (url, type, title) VALUES (?, ?, ?)",
+            [item.url, item.type, item.title],
+          );
+
+          const newId = portfolioResult.insertId;
+          keptIds.add(newId);
+          await conn.query("INSERT INTO artist_portfolio (artist_id, portfolio_id) VALUES (?, ?)", [
+            artistId,
+            newId,
+          ]);
+        }
+
+        const toUnlink = Array.from(existingIds).filter((id) => !keptIds.has(id));
+        if (toUnlink.length) {
+          const placeholders = toUnlink.map(() => "?").join(",");
+          await conn.query(
+            `DELETE FROM artist_portfolio WHERE artist_id = ? AND portfolio_id IN (${placeholders})`,
+            [artistId, ...toUnlink],
+          );
+
+          await conn.query(
+            `DELETE p FROM portfolio p
+             WHERE p.id IN (${placeholders})
+             AND NOT EXISTS (
+               SELECT 1 FROM artist_portfolio ap2 WHERE ap2.portfolio_id = p.id
+             )`,
+            toUnlink,
+          );
+        }
       }
 
       // 7. Update demos
-      await conn.query('DELETE FROM artist_demo WHERE artist_id = ?', [artistId]);
-      for (const item of demo) {
-        // Insert into demo table
-        const [demoResult] = await conn.query(
-          'INSERT INTO demo (name, file) VALUES (?, ?)',
-          [item.name, item.file]
-        );
-        
-        // Link to artist
-        await conn.query(
-          'INSERT INTO artist_demo (artist_id, demo_id) VALUES (?, ?)',
-          [artistId, demoResult.insertId]
-        );
+      if (normalizedDemo !== undefined) {
+        await conn.query("DELETE FROM artist_demo WHERE artist_id = ?", [artistId]);
+        for (const item of normalizedDemo) {
+          const [demoResult] = await conn.query("INSERT INTO demo (name, file) VALUES (?, ?)", [
+            item.name,
+            item.file,
+          ]);
+
+          await conn.query("INSERT INTO artist_demo (artist_id, demo_id) VALUES (?, ?)", [
+            artistId,
+            demoResult.insertId,
+          ]);
+        }
       }
 
       await conn.commit();
@@ -990,7 +1272,10 @@ GROUP BY s.id
     } catch (error) {
       await conn.rollback();
       console.error("Error updating profile:", error);
-      throw new Error(`Failed to update profile: ${error.message}`);
+      const err = new Error(`Failed to update profile: ${error.message}`);
+      if (error?.statusCode) err.statusCode = error.statusCode;
+      if (error?.code) err.code = error.code;
+      throw err;
     } finally {
       conn.release();
     }
@@ -1005,14 +1290,29 @@ GROUP BY s.id
       const { user_id, studio_id, booking_date, booking_time, nbr_guests, service_id, status } = bookingData;
       
       const sql = `
-        INSERT INTO booking (user_id, studio_id, booking_date, booking_time, nbr_guests, service_id, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO booking (user_id, studio_id, booking_date, booking_time, nbr_guests)
+        VALUES (?, ?, ?, ?, ?)
       `;
       
-      const values = [user_id, studio_id, booking_date, booking_time, nbr_guests, service_id, status];
+      const values = [user_id, studio_id, booking_date, booking_time, nbr_guests];
       const [result] = await pool.query(sql, values);
-      
-      return { id: result.insertId, ...bookingData };
+
+      const bookingId = result.insertId;
+
+      if (service_id) {
+        try {
+          await attachBookingService({
+            bookingId,
+            studioId: studio_id,
+            serviceId: service_id,
+            status: status || "Pending",
+          });
+        } catch (e) {
+          console.error("Failed to attach booking service:", e);
+        }
+      }
+
+      return { id: bookingId, ...bookingData };
     } catch (error) {
       throw new Error(`Error creating booking: ${error.message}`);
     }
@@ -1040,10 +1340,50 @@ GROUP BY s.id
     }
   },
 
+  async updateReview({ artistId, reviewId, rating, comment }) {
+    try {
+      const sql = `
+        UPDATE review
+        SET rating = ?, comment = ?
+        WHERE id = ? AND artist_id = ?
+      `;
+
+      const values = [rating, comment, reviewId, artistId];
+      const [result] = await pool.query(sql, values);
+
+      if (!result.affectedRows) return null;
+
+      return { id: reviewId, artist_id: artistId, rating, comment };
+    } catch (error) {
+      throw new Error(`Error updating review: ${error.message}`);
+    }
+  },
+
+  async deleteReview({ artistId, reviewId }) {
+    try {
+      const [result] = await pool.query(
+        `DELETE FROM review WHERE id = ? AND artist_id = ?`,
+        [reviewId, artistId],
+      );
+
+      return { deleted: result.affectedRows > 0 };
+    } catch (error) {
+      throw new Error(`Error deleting review: ${error.message}`);
+    }
+  },
+
   async addFavorite(data){
     try {
       const { artist_id, studio_id} = data;
-      
+
+      const [existingRows] = await pool.query(
+        `SELECT id FROM favorite_studio WHERE artist_id = ? AND studio_id = ? LIMIT 1`,
+        [artist_id, studio_id],
+      );
+      if (existingRows.length) {
+        return { id: existingRows[0].id, ...data };
+      }
+       
       const sql = `
         INSERT INTO favorite_studio (artist_id, studio_id)
         VALUES (?, ?)
@@ -1077,9 +1417,15 @@ GROUP BY s.id
   },
 
   // -- Fetch gamification --
-  fetchGamification: async (studioId) => {
-    const [rows] = await pool.query(
-      `
+  fetchGamification: async (userId, userType = "artist") => {
+    try {
+      // Ensure row exists (and normalize computed fields) so clients don't get 404 for new users.
+      await GamificationModel.updateGamification(Number(userId), userType);
+    } catch (e) {
+      // If schema isn't available yet, we'll still attempt a read below.
+    }
+
+    const baseSelect = `
       SELECT 
         g.id AS gamification_id,
         g.user_id,
@@ -1090,6 +1436,10 @@ GROUP BY s.id
         g.last_level_up,
         g.created_at,
         g.updated_at,
+        (SELECT COUNT(*) FROM booking b WHERE b.user_id = g.user_id AND b.booking_date >= DATE_SUB(NOW(), INTERVAL 6 MONTH)) AS bookings_last6,
+        (SELECT COUNT(*) FROM booking b WHERE b.user_id = g.user_id) AS bookings_all,
+        (SELECT COUNT(*) FROM review rv WHERE rv.artist_id = g.user_id AND rv.review_date >= DATE_SUB(NOW(), INTERVAL 6 MONTH)) AS reviews_last6,
+        (SELECT COUNT(*) FROM review rv WHERE rv.artist_id = g.user_id) AS reviews_all,
         GROUP_CONCAT(DISTINCT p.name) AS perks,
         GROUP_CONCAT(DISTINCT r.reward_name) AS rewards
       FROM gamification g
@@ -1097,13 +1447,46 @@ GROUP BY s.id
       LEFT JOIN perks p ON gp.perk_id = p.id
       LEFT JOIN gamification_rewards gr ON g.id = gr.gamification_id
       LEFT JOIN rewards r ON gr.reward_id = r.id
-      WHERE g.user_id = ?
+      WHERE g.user_id = ? AND g.user_type = ?
       GROUP BY g.id
-      `,
-      [studioId]
-    );
+    `;
 
-    return rows[0] || null; // return single object
+    const minimalSelect = `
+      SELECT 
+        g.id AS gamification_id,
+        g.user_id,
+        g.user_type,
+        g.points,
+        g.normal_level,
+        g.xp_level,
+        g.last_level_up,
+        g.created_at,
+        g.updated_at,
+        (SELECT COUNT(*) FROM booking b WHERE b.user_id = g.user_id AND b.booking_date >= DATE_SUB(NOW(), INTERVAL 6 MONTH)) AS bookings_last6,
+        (SELECT COUNT(*) FROM booking b WHERE b.user_id = g.user_id) AS bookings_all,
+        (SELECT COUNT(*) FROM review rv WHERE rv.artist_id = g.user_id AND rv.review_date >= DATE_SUB(NOW(), INTERVAL 6 MONTH)) AS reviews_last6,
+        (SELECT COUNT(*) FROM review rv WHERE rv.artist_id = g.user_id) AS reviews_all
+      FROM gamification g
+      WHERE g.user_id = ? AND g.user_type = ?
+      LIMIT 1
+    `;
+
+    try {
+      const [rows] = await pool.query(baseSelect, [userId, userType]);
+      return rows[0] || null;
+    } catch (error) {
+      const msg = String(error?.message || "");
+      if (
+        msg.includes("gamification_perks") ||
+        msg.includes("gamification_rewards") ||
+        msg.includes("perks") ||
+        msg.includes("rewards")
+      ) {
+        const [rows] = await pool.query(minimalSelect, [userId, userType]);
+        return rows[0] || null;
+      }
+      throw error;
+    }
   },
 };
 

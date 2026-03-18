@@ -6,11 +6,15 @@ import artistController from '../controllers/artistController.js';
 router.get('/studios', artistController.fetchAllStudios);              // 1
 router.get('/:artistId/bookings', artistController.fetchAllBookings);   // 2
 router.get('/:artistId/reviews', artistController.fetchRelatedReviews); // 3
+router.put('/:artistId/reviews/:reviewId', artistController.updateReview);
+router.delete('/:artistId/reviews/:reviewId', artistController.deleteReview);
+router.put('/:artistId/portfolio/:portfolioId', artistController.updatePortfolioItem);
 router.get('/:artistId/points', artistController.fetchPoints);          // 4
 router.get('/:artistId/notifications', artistController.fetchNotifications);  // 5
 router.get('/:artistId/favorites', artistController.fetchFavoriteStudios);   // 6
 router.get('/studio/:studioId', artistController.fetchStudioById);            // 7
 router.get('/:artistId/profile', artistController.fetchProfile);               // 8
+router.get('/:artistId/mini-profile', artistController.fetchMiniProfile);
 
 // Payments
 router.get('/payment-method/:userId', artistController.fetchPaymentMethod);    // 9

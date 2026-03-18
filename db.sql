@@ -248,6 +248,49 @@ CREATE TABLE points (
     FOREIGN KEY (artist_id) REFERENCES artist(id) ON DELETE CASCADE
 );
 
+-- Gamification (used by /artist/:id/gamification and /studio/:id/gamification)
+CREATE TABLE gamification (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    user_type ENUM('artist','studio') NOT NULL,
+    points INT NOT NULL DEFAULT 0,
+    normal_level INT NOT NULL DEFAULT 1,
+    xp_level INT NOT NULL DEFAULT 1,
+    last_review_count INT NOT NULL DEFAULT 0,
+    last_level_up DATETIME NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uniq_gamification_user (user_id, user_type)
+);
+
+CREATE TABLE perks (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(255) NOT NULL
+);
+
+CREATE TABLE rewards (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    reward_name VARCHAR(255) NOT NULL
+);
+
+CREATE TABLE gamification_perks (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    gamification_id INT NOT NULL,
+    perk_id INT NOT NULL,
+    FOREIGN KEY (gamification_id) REFERENCES gamification(id) ON DELETE CASCADE,
+    FOREIGN KEY (perk_id) REFERENCES perks(id) ON DELETE CASCADE,
+    UNIQUE KEY uniq_gamification_perk (gamification_id, perk_id)
+);
+
+CREATE TABLE gamification_rewards (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    gamification_id INT NOT NULL,
+    reward_id INT NOT NULL,
+    FOREIGN KEY (gamification_id) REFERENCES gamification(id) ON DELETE CASCADE,
+    FOREIGN KEY (reward_id) REFERENCES rewards(id) ON DELETE CASCADE,
+    UNIQUE KEY uniq_gamification_reward (gamification_id, reward_id)
+);
+
 CREATE TABLE transactions (
     id INT AUTO_INCREMENT PRIMARY KEY,
     booking_id INT,

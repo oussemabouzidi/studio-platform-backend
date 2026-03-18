@@ -147,6 +147,19 @@ model portfolio {
   title String?         @db.VarChar(255)
 }
 
+model media {
+  id         Int            @id @default(autoincrement())
+  key        String         @map("key") @db.VarChar(255)
+  url        String         @db.VarChar(2048)
+  provider   media_provider
+  mime_type  String         @db.VarChar(255)
+  size       Int            @db.UnsignedInt
+  created_at DateTime       @default(now()) @db.DateTime(0)
+
+  @@unique([key], map: "uq_media_key")
+  @@index([created_at], map: "idx_media_created_at")
+}
+
 model review {
   id          Int       @id @default(autoincrement())
   artist_id   Int?
@@ -402,6 +415,11 @@ enum portfolio_type {
   video
   audio
   document
+}
+
+enum media_provider {
+  local
+  s3
 }
 
 enum service_price_type {

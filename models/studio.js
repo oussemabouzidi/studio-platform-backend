@@ -638,7 +638,6 @@ GROUP BY t.studio_id;
 
   updateBookingStatus: async (bookingId, status) => {
     try {
-      console.log("Updating booking:", bookingId, "to status:", status.status);
 
       // 1. Update the booking status
       const sql = 'UPDATE booking SET status = ? WHERE id = ?';
@@ -1136,9 +1135,14 @@ GROUP BY t.studio_id;
   },
 
   // -- Fetch gamification --
-  fetchGamification: async (studioId) => {
-    const [rows] = await pool.query(
-      `
+  fetchGamification: async (userId, userType = "studio") => {
+    try {
+      await GamificationModel.updateGamification(Number(userId), userType);
+    } catch (e) {
+      // ignore; try read below
+    }
+
+    const baseSelect = `
       SELECT 
         g.id AS gamification_id,
         g.user_id,
@@ -1149,6 +1153,10 @@ GROUP BY t.studio_id;
         g.last_level_up,
         g.created_at,
         g.updated_at,
+        (SELECT COUNT(*) FROM booking b WHERE b.studio_id = g.user_id AND b.booking_date >= DATE_SUB(NOW(), INTERVAL 6 MONTH)) AS bookings_last6,
+        (SELECT COUNT(*) FROM booking b WHERE b.studio_id = g.user_id) AS bookings_all,
+        (SELECT COUNT(*) FROM review rv WHERE rv.studio_id = g.user_id AND rv.review_date >= DATE_SUB(NOW(), INTERVAL 6 MONTH)) AS reviews_last6,
+        (SELECT COUNT(*) FROM review rv WHERE rv.studio_id = g.user_id) AS reviews_all,
         GROUP_CONCAT(DISTINCT p.name) AS perks,
         GROUP_CONCAT(DISTINCT r.reward_name) AS rewards
       FROM gamification g
@@ -1156,13 +1164,46 @@ GROUP BY t.studio_id;
       LEFT JOIN perks p ON gp.perk_id = p.id
       LEFT JOIN gamification_rewards gr ON g.id = gr.gamification_id
       LEFT JOIN rewards r ON gr.reward_id = r.id
-      WHERE g.user_id = ?
+      WHERE g.user_id = ? AND g.user_type = ?
       GROUP BY g.id
-      `,
-      [studioId]
-    );
+    `;
 
-    return rows[0] || null; // return single object
+    const minimalSelect = `
+      SELECT 
+        g.id AS gamification_id,
+        g.user_id,
+        g.user_type,
+        g.points,
+        g.normal_level,
+        g.xp_level,
+        g.last_level_up,
+        g.created_at,
+        g.updated_at,
+        (SELECT COUNT(*) FROM booking b WHERE b.studio_id = g.user_id AND b.booking_date >= DATE_SUB(NOW(), INTERVAL 6 MONTH)) AS bookings_last6,
+        (SELECT COUNT(*) FROM booking b WHERE b.studio_id = g.user_id) AS bookings_all,
+        (SELECT COUNT(*) FROM review rv WHERE rv.studio_id = g.user_id AND rv.review_date >= DATE_SUB(NOW(), INTERVAL 6 MONTH)) AS reviews_last6,
+        (SELECT COUNT(*) FROM review rv WHERE rv.studio_id = g.user_id) AS reviews_all
+      FROM gamification g
+      WHERE g.user_id = ? AND g.user_type = ?
+      LIMIT 1
+    `;
+
+    try {
+      const [rows] = await pool.query(baseSelect, [userId, userType]);
+      return rows[0] || null;
+    } catch (error) {
+      const msg = String(error?.message || "");
+      if (
+        msg.includes("gamification_perks") ||
+        msg.includes("gamification_rewards") ||
+        msg.includes("perks") ||
+        msg.includes("rewards")
+      ) {
+        const [rows] = await pool.query(minimalSelect, [userId, userType]);
+        return rows[0] || null;
+      }
+      throw error;
+    }
   },
 
 };

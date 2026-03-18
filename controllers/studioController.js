@@ -31,7 +31,6 @@ const studioController = {
 
   addStudioService: async (req, res) => {
     try {  
-      console.log(req.body);    
       const serviceData = {
         name: req.body.name,
         price_type: req.body.priceType,
@@ -411,7 +410,7 @@ const studioController = {
   fetchGamification: async (req, res) => {
     try {
       const studioId = Number(req.params.studioId);
-      const gamification = await StudioModel.fetchGamification(studioId);
+      const gamification = await StudioModel.fetchGamification(studioId, "studio");
 
       if (!gamification) {
         return res.status(404).json({ message: "No gamification data found" });

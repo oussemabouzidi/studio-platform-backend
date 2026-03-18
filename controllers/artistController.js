@@ -6,7 +6,6 @@ export default {
       // No artistId param needed here (in your model, getAllStudios has no args)
       const studios = await ArtistModel.getAllStudios();
       console.log("studio method is beign used")
-      console.log(studios);
       res.json(studios);
     } catch (error) {
       res.status(500).json({ error: error.message });
@@ -88,6 +87,17 @@ export default {
     try {
       const artistId = Number(req.params.artistId);
       const profile = await ArtistModel.getProfile(artistId);
+      if (!profile) return res.status(404).json({ message: "Artist not found" });
+      res.json(profile);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  },
+
+  fetchMiniProfile: async (req, res) => {
+    try {
+      const artistId = Number(req.params.artistId);
+      const profile = await ArtistModel.getMiniProfile(artistId);
       if (!profile) return res.status(404).json({ message: "Artist not found" });
       res.json(profile);
     } catch (error) {
@@ -296,6 +306,106 @@ export default {
     }
   },
 
+  updateReview: async (req, res) => {
+    try {
+      const artistId = Number(req.params.artistId);
+      const reviewId = Number(req.params.reviewId);
+      const { rating, comment } = req.body || {};
+
+      if (!Number.isFinite(artistId) || !Number.isFinite(reviewId)) {
+        return res.status(400).json({ error: "Invalid id" });
+      }
+
+      const nextRating = Number(rating);
+      if (!Number.isFinite(nextRating) || nextRating < 1 || nextRating > 5) {
+        return res.status(400).json({ error: "Rating must be between 1 and 5" });
+      }
+
+      const nextComment = String(comment ?? "").trim();
+      if (!nextComment) {
+        return res.status(400).json({ error: "Comment is required" });
+      }
+
+      const updated = await ArtistModel.updateReview({
+        artistId,
+        reviewId,
+        rating: nextRating,
+        comment: nextComment,
+      });
+
+      if (!updated) {
+        return res.status(404).json({ error: "Review not found" });
+      }
+
+      return res.json(updated);
+    } catch (error) {
+      console.log(error);
+      res.status(500).json({ error: error.message });
+    }
+  },
+
+  deleteReview: async (req, res) => {
+    try {
+      const artistId = Number(req.params.artistId);
+      const reviewId = Number(req.params.reviewId);
+
+      if (!Number.isFinite(artistId) || !Number.isFinite(reviewId)) {
+        return res.status(400).json({ error: "Invalid id" });
+      }
+
+      const result = await ArtistModel.deleteReview({ artistId, reviewId });
+      if (!result?.deleted) {
+        return res.status(404).json({ error: "Review not found" });
+      }
+
+      return res.json(result);
+    } catch (error) {
+      console.log(error);
+      res.status(500).json({ error: error.message });
+    }
+  },
+
+  updatePortfolioItem: async (req, res) => {
+    try {
+      const artistId = Number(req.params.artistId);
+      const portfolioId = Number(req.params.portfolioId);
+      const { url, type, title } = req.body || {};
+
+      if (!Number.isFinite(artistId) || !Number.isFinite(portfolioId)) {
+        return res.status(400).json({ error: "Invalid id" });
+      }
+
+      const nextUrl = String(url ?? "").trim();
+      const nextTitle = String(title ?? "").trim();
+      const nextType = String(type ?? "").trim();
+
+      if (!nextUrl || !nextTitle || !nextType) {
+        return res.status(400).json({ error: "Missing required fields" });
+      }
+
+      if (!["image", "video", "audio"].includes(nextType)) {
+        return res.status(400).json({ error: "Invalid portfolio type" });
+      }
+
+      const updated = await ArtistModel.updatePortfolioItem({
+        artistId,
+        portfolioId,
+        url: nextUrl,
+        type: nextType,
+        title: nextTitle,
+      });
+
+      if (!updated) {
+        return res.status(404).json({ error: "Portfolio item not found" });
+      }
+
+      return res.json(updated);
+    } catch (error) {
+      console.log(error);
+      res.status(500).json({ error: error.message });
+    }
+  },
+
 
   addFavorite: async (req, res) => {
     try {
@@ -327,7 +437,11 @@ export default {
       const updatedProfile = await ArtistModel.updateArtistProfile(artistId, data);
       res.json(updatedProfile);
     } catch (error) {
-      res.status(500).json({ error: error.message });
+      const statusCode =
+        error?.statusCode ||
+        (error?.code === "ER_DATA_TOO_LONG" ? 400 : null) ||
+        500;
+      res.status(statusCode).json({ error: error?.message || "Failed to update profile" });
     }
   },
 
@@ -346,7 +460,7 @@ export default {
   fetchGamification: async (req, res) => {
     try {
       const id = Number(req.params.artistId);
-      const gamification = await ArtistModel.fetchGamification(id);
+      const gamification = await ArtistModel.fetchGamification(id, "artist");
 
       if (!gamification) {
         return res.status(404).json({ message: "No gamification data found" });

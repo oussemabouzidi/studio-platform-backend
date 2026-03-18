@@ -8,6 +8,11 @@ import cors from 'cors';
 import dotenv from "dotenv";
 import path from "path";
 import { pathToFileURL } from "url";
+import fs from "fs";
+import uploadRoutes from "./routes/uploadRoutes.js";
+import uploadsRoutes from "./routes/uploadsRoutes.js";
+import mediaRoutes from "./routes/mediaRoutes.js";
+import { storageDriver } from "./services/storage/index.js";
 
 dotenv.config({ quiet: true });
 
@@ -15,14 +20,42 @@ const server = express();
 server.use(express.json({ limit: "10mb" }));
 server.use(express.urlencoded({ limit: "10mb", extended: true }));
 
-
+const corsOrigins = (process.env.CORS_ORIGIN || "http://localhost:3000,http://localhost:3001")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
 
 server.use(cors({
-  origin: "http://localhost:3001",
+  origin: corsOrigins,
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
   credentials: true
 }));
+
+// Serve local uploads (STORAGE_DRIVER=local)
+const uploadsDir = process.env.UPLOADS_DIR
+  ? path.resolve(process.env.UPLOADS_DIR)
+  : path.resolve(process.cwd(), "uploads");
+if (storageDriver() === "local") {
+  try {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+  } catch {
+    // ignore (adapter will error on write if it cannot create the directory)
+  }
+}
+server.use(
+  "/uploads",
+  express.static(uploadsDir, {
+    fallthrough: true,
+    index: false,
+    redirect: false,
+    dotfiles: "deny",
+    setHeaders: (res) => {
+      res.setHeader("X-Content-Type-Options", "nosniff");
+      res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+    },
+  }),
+);
 
 // Logging middleware
 server.use((req, res, next) => {
@@ -36,6 +69,9 @@ server.use('/api/admin', adminRoutes);
 server.use('/api/studio', studioRoutes);
 server.use('/api/auth', authRoutes);
 server.use('/api/stats', statsRoutes);
+server.use("/api", uploadRoutes); // POST /api/upload
+server.use("/api/uploads", uploadsRoutes); // POST /api/uploads/presign|confirm
+server.use("/api/media", mediaRoutes); // GET /api/media
 
 // Test route
 server.get('/', (req, res) => {
@@ -45,7 +81,22 @@ server.get('/', (req, res) => {
 // Error handling
 server.use((err, req, res, next) => {
   console.error(err.stack);
-  res.status(500).send('Something broke!');
+  const isApi = req.originalUrl?.startsWith("/api/");
+
+  if (err?.code === "LIMIT_FILE_SIZE") {
+    const payload = { error: "File too large (max 50MB)" };
+    return isApi ? res.status(413).json(payload) : res.status(413).send(payload.error);
+  }
+
+  if (isApi && typeof err?.message === "string") {
+    if (err.message.includes("Only image/audio/video")) {
+      return res.status(400).json({ error: err.message });
+    }
+  }
+
+  const message = err?.message || "Something broke!";
+  if (isApi) return res.status(500).json({ error: message });
+  return res.status(500).send(message);
 });
 
 export function startServer(port = process.env.PORT || 8800) {
