@@ -46,7 +46,35 @@ const authController = {
             userId,
             });
         } catch (error) {
-            res.status(500).json({ error: "Failed to create account" });
+            console.error("Error creating account:", error);
+
+            const code = error?.code;
+            const errno = error?.errno;
+            const sqlState = error?.sqlState;
+
+            const isDuplicateEntry =
+              code === "ER_DUP_ENTRY" || errno === 1062 || sqlState === "23000";
+
+            if (isDuplicateEntry) {
+              return res.status(409).json({
+                error: {
+                  kind: "DUPLICATE_EMAIL",
+                  message:
+                    "This email is already used. Please choose another email.",
+                  code,
+                  errno,
+                  sqlState,
+                  sqlMessage: error?.sqlMessage,
+                },
+              });
+            }
+
+            res.status(500).json({
+              error: {
+                kind: "UNKNOWN",
+                message: "Failed to create account",
+              },
+            });
         }
     },
 
